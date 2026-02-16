@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { generateEmbeddings, fetchEmbedModels } from '../services/vllm';
-import { addDocuments, getDocumentCount, clearKnowledgeBase } from '../services/vectorStore';
+import { addDocuments, getDocumentCount, clearAll } from '../services/kbApi';
 
 const PRESET_ENDPOINTS = [
   { label: 'Knowledge Bases', value: 'knowledge-bases' },
@@ -54,8 +54,8 @@ const Datasets = () => {
 
   // Poll KB doc count
   useEffect(() => {
-    setKbDocCount(getDocumentCount());
-    const interval = setInterval(() => setKbDocCount(getDocumentCount()), 3000);
+    getDocumentCount().then(setKbDocCount);
+    const interval = setInterval(() => { getDocumentCount().then(setKbDocCount); }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -90,7 +90,7 @@ const Datasets = () => {
     saveConfig();
 
     try {
-      const url = `${getFullUrl()}?pagination[pageSize]=100`;
+      const url = `${getFullUrl()}?pagination[pageSize]=1000`;
       const response = await fetch(url, { method: 'GET', headers: getHeaders() });
 
       if (!response.ok) {
@@ -179,15 +179,7 @@ const Datasets = () => {
 
   const handleSendToEmbeddings = () => {
     const selectedItems = data.filter(d => selectedIds.has(d.id));
-    const textContent = selectedItems.map(item => {
-      const { id, _raw, created_at, updated_at, createdAt, updatedAt, publishedAt, ...rest } = item;
-      if (rest.body && typeof rest.body === 'string') return rest.body;
-      if (rest.summary && typeof rest.summary === 'string') return rest.summary;
-      if (rest.content && typeof rest.content === 'string') return rest.content;
-      if (rest.description && typeof rest.description === 'string') return rest.description;
-      if (rest.text && typeof rest.text === 'string') return rest.text;
-      return JSON.stringify(rest);
-    }).join('\n\n');
+    const textContent = selectedItems.map(extractTextFromItem).join('\n\n');
     navigate('/embeddings', { state: { initialInput: textContent } });
   };
 
@@ -212,6 +204,11 @@ const Datasets = () => {
     if (rest.content && typeof rest.content === 'string') return rest.content;
     if (rest.description && typeof rest.description === 'string') return rest.description;
     if (rest.text && typeof rest.text === 'string') return rest.text;
+    if (rest.name && typeof rest.name === 'string') {
+      const tr = rest.name_tr && typeof rest.name_tr === 'string' ? ` (${rest.name_tr})` : '';
+      return rest.name + tr;
+    }
+    if (rest.title && typeof rest.title === 'string') return rest.title;
     return JSON.stringify(rest);
   };
 
@@ -252,11 +249,11 @@ const Datasets = () => {
           sourceLabel: `${endpoint} #${items[i + idx]?.id || idx}`,
         }));
 
-        addDocuments(docs, embedModel);
+        await addDocuments(docs, embedModel);
         totalSaved += docs.length;
       }
 
-      setKbDocCount(getDocumentCount());
+      setKbDocCount(await getDocumentCount());
       setEmbedSuccess(`Saved ${totalSaved} documents to Knowledge Base!`);
       setTimeout(() => setEmbedSuccess(null), 4000);
     } catch (err: any) {
@@ -266,8 +263,8 @@ const Datasets = () => {
     }
   };
 
-  const handleClearKB = () => {
-    clearKnowledgeBase();
+  const handleClearKB = async () => {
+    await clearAll();
     setKbDocCount(0);
   };
 

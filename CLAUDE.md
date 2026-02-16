@@ -6,16 +6,18 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 ## Proje Yapisi
 - `forge-ai-studio/` - Ana React uygulamasi (Vite + TypeScript)
   - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, History, Settings
-  - `services/` - vllm.ts, vectorStore.ts, rag.ts, markdown.ts, history.ts, mockData.ts
+  - `services/` - vllm.ts, kbApi.ts, rag.ts, markdown.ts, history.ts, mockData.ts
   - `components/` - Sidebar.tsx
+- `kb-service/` - FastAPI + pgvector Knowledge Base backend (main.py, database.py, models.py)
+- `docker-compose.yml` - pgvector PostgreSQL container
 - `docs/api/` - vLLM API dokumantasyonu (chat-completions, embeddings, completions, tool-calling, tokenizer, qwen3-thinking, health, models)
 - `docs/app/` - Uygulama dokumantasyonu
 - `test-api.py` - API test scripti (health, chat, thinking, completions, embed, tokenizer, streaming, edge)
 
 ## Servisler
 - **vllm.ts**: Chat completion stream, embedding generation, model listesi
-- **vectorStore.ts**: Client-side vector store (localStorage, cosine similarity)
-- **rag.ts**: RAG pipeline (embed query → search → context injection)
+- **kbApi.ts**: KB API client (addDocuments, getDocuments, searchSimilar, deleteDocument, bulkDelete, clearAll, getStats)
+- **rag.ts**: RAG pipeline (embed query → pgvector search → context injection)
 - **markdown.ts**: Think tag parser + markdown renderer
 - **history.ts**: Chat/embedding istek loglamasi (localStorage)
 - **mockData.ts**: Test/demo verileri
@@ -32,6 +34,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 ## Dev Ortami
 - Chat API: port 8010 (proxy: /api/chat)
 - Embed API: port 8011 (proxy: /api/embed)
+- KB API: port 8012 (proxy: /api/kb)
 - Strapi: strapi.sipsy.ai (proxy: /api/strapi)
 - Dev server: port 3000
 
@@ -43,4 +46,6 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - React 19 + TypeScript + Vite
 - React Router DOM (SPA routing)
 - Lucide React (ikonlar)
-- localStorage (state persistence)
+- PostgreSQL + pgvector (Knowledge Base backend)
+- FastAPI (kb-service)
+- localStorage (settings persistence)

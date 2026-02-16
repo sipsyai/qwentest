@@ -3,6 +3,7 @@ dist/
 .DS_Store
 __pycache__/
 *.pyc
+venv/
 .env
 .claude/reports/
 .claude/plans/

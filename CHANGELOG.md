@@ -3,6 +3,26 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.4.0] - 2026-02-16
+### Added
+- kb-service: FastAPI + pgvector Knowledge Base backend (PostgreSQL, cosine similarity search)
+- kbApi.ts: KB API client (CRUD + semantic search)
+- docker-compose.yml: pgvector container konfig
+- Datasets: `name`/`title` alan destegi (extractTextFromItem) - tag isimleri duz metin olarak embed
+- Embeddings: Knowledge Base tab (list, search, delete, bulk delete, pagination)
+
+### Changed
+- vectorStore (localStorage) → pgvector backend'e gecis (tum sayfalar)
+- Datasets: handleSendToEmbeddings DRY refactor (extractTextFromItem kullanimi)
+- Datasets: pageSize 100→1000
+- Playground RAG mode: pgvector semantic search
+- rag.ts: async pgvector search
+- vite.config.ts: /api/kb proxy eklendi
+
+### Fixed
+- kb-service: asyncpg `::vector` cast syntax error → CAST(... AS vector)
+- Datasets: addDocuments/getDocumentCount async/await eksikligi
+
 ## [0.3.0] - 2026-02-16
 ### Added
 - `/commit-push` slash command: otomatik CHANGELOG, docs, CLAUDE.md guncelleyici

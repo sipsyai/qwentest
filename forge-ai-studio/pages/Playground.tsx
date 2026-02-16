@@ -22,7 +22,7 @@ import { logChatRequest } from '../services/history';
 import { Model } from '../types';
 import { parseThinkTags, renderMarkdownToHTML } from '../services/markdown';
 import { executeRAGPipeline, RAGResult } from '../services/rag';
-import { getDocumentCount } from '../services/vectorStore';
+import { getDocumentCount, getStats } from '../services/kbApi';
 import { fetchEmbedModels } from '../services/vllm';
 
 const Playground = () => {
@@ -65,6 +65,8 @@ const Playground = () => {
   const [ragSearchTime, setRagSearchTime] = useState(0);
   const [kbDocCount, setKbDocCount] = useState(0);
   const [embedModel, setEmbedModel] = useState('');
+  const [ragSources, setRagSources] = useState<string[]>([]);
+  const [availableSources, setAvailableSources] = useState<string[]>([]);
 
   // Timing - use ref to avoid stale closure
   const startTimeRef = useRef<number>(0);
@@ -92,10 +94,19 @@ const Playground = () => {
     });
   }, []);
 
-  // Poll KB doc count
+  // Poll KB doc count and fetch available sources
   useEffect(() => {
-    setKbDocCount(getDocumentCount());
-    const interval = setInterval(() => setKbDocCount(getDocumentCount()), 3000);
+    const fetchKBInfo = async () => {
+      try {
+        const stats = await getStats();
+        setKbDocCount(stats.total);
+        setAvailableSources(stats.source_labels);
+      } catch {
+        setKbDocCount(0);
+      }
+    };
+    fetchKBInfo();
+    const interval = setInterval(fetchKBInfo, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -125,7 +136,7 @@ const Playground = () => {
           prompt,
           systemPrompt,
           embedModel,
-          { topK: ragTopK, threshold: ragThreshold, signal: controller.signal }
+          { topK: ragTopK, threshold: ragThreshold, signal: controller.signal, sources: ragSources.length > 0 ? ragSources : undefined }
         );
         setRagContext(ragResult.relevantDocs);
         setRagSearchTime(ragResult.searchTimeMs + ragResult.embeddingTimeMs);
@@ -210,7 +221,7 @@ const Playground = () => {
     );
   }, [selectedModel, prompt, systemPrompt, temperature, topP, topK, maxTokens,
       presencePenalty, frequencyPenalty, repetitionPenalty, seed, stopSequences,
-      jsonMode, thinking, ragEnabled, ragTopK, ragThreshold, kbDocCount, embedModel]);
+      jsonMode, thinking, ragEnabled, ragTopK, ragThreshold, kbDocCount, embedModel, ragSources]);
 
   const handleStop = () => {
     if (abortControllerRef.current) {
@@ -372,6 +383,49 @@ const Playground = () => {
               )}
             </label>
           </section>
+
+          {/* RAG Source Filter */}
+          {ragEnabled && availableSources.length > 0 && (
+            <section className="bg-amber-900/10 border border-amber-900/30 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Search size={14} className="text-amber-400" />
+                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">RAG Source Filter</span>
+                <span className="text-[10px] text-slate-500 ml-auto">
+                  {ragSources.length === 0 ? 'All sources' : `${ragSources.length} selected`}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {availableSources.map(label => {
+                  const isSelected = ragSources.includes(label);
+                  return (
+                    <button
+                      key={label}
+                      onClick={() => {
+                        setRagSources(prev =>
+                          isSelected ? prev.filter(s => s !== label) : [...prev, label]
+                        );
+                      }}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded-full border transition-all ${
+                        isSelected
+                          ? 'bg-amber-600/20 text-amber-300 border-amber-600/50'
+                          : 'bg-slate-800/50 text-slate-500 border-slate-700 hover:text-slate-300 hover:border-slate-600'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                {ragSources.length > 0 && (
+                  <button
+                    onClick={() => setRagSources([])}
+                    className="px-2.5 py-1 text-[11px] font-medium rounded-full text-slate-500 hover:text-white transition-colors"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+            </section>
+          )}
 
           {/* Core Model Params */}
           <section className="space-y-6 pt-4 border-t border-slate-800">

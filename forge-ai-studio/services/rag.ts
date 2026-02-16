@@ -1,7 +1,8 @@
 // RAG Pipeline - Orchestrates retrieval-augmented generation
 
 import { generateEmbeddings } from './vllm';
-import { searchSimilar, getDocumentCount, SearchResult } from './vectorStore';
+import { searchSimilar, getDocumentCount } from './kbApi';
+import type { SearchResult } from './kbApi';
 
 export interface RAGResult {
   relevantDocs: SearchResult[];
@@ -14,11 +15,12 @@ export const executeRAGPipeline = async (
   userPrompt: string,
   systemPrompt: string,
   embedModel: string,
-  options: { topK?: number; threshold?: number; signal?: AbortSignal } = {}
+  options: { topK?: number; threshold?: number; signal?: AbortSignal; sources?: string[] } = {}
 ): Promise<RAGResult> => {
-  const { topK = 3, threshold = 0.3, signal } = options;
+  const { topK = 3, threshold = 0.3, signal, sources } = options;
 
-  if (getDocumentCount() === 0) {
+  const docCount = await getDocumentCount();
+  if (docCount === 0) {
     return {
       relevantDocs: [],
       augmentedMessages: buildMessages(systemPrompt, userPrompt, []),
@@ -44,7 +46,7 @@ export const executeRAGPipeline = async (
 
   // 2. Search similar documents
   const searchStart = Date.now();
-  const relevantDocs = searchSimilar(queryVector, topK, threshold);
+  const relevantDocs = await searchSimilar(queryVector, topK, threshold, sources);
   const searchTimeMs = Date.now() - searchStart;
 
   // 3. Build augmented messages

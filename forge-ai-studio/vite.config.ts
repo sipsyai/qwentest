@@ -24,6 +24,10 @@ export default defineConfig(({ mode }) => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api\/strapi/, ''),
           },
+          '/api/kb': {
+            target: 'http://localhost:8012',
+            changeOrigin: true,
+          },
         },
       },
       plugins: [react()],
