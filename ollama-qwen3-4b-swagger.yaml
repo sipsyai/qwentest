@@ -1,0 +1,1591 @@
+openapi: 3.0.3
+info:
+  title: Ollama API - qwen3:4b
+  description: |
+    Ollama REST API dokümantasyonu, **qwen3:4b** modeli odaklı.
+
+    ## Model Bilgileri
+    | Bilgi | Değer |
+    |-------|-------|
+    | Model | qwen3:4b |
+    | Aile | qwen3 |
+    | Parametre Sayısı | 4.0B |
+    | Format | GGUF (Q4_K_M) |
+    | Max Context | 262,144 token |
+    | Lisans | Apache 2.0 |
+    | Thinking Mode | Destekleniyor |
+    | Tool Calling | Destekleniyor |
+
+    ## Varsayılan Parametreler
+    - `temperature`: 0.6
+    - `top_p`: 0.95
+    - `top_k`: 20
+    - `repeat_penalty`: 1.0
+
+    ## Streaming
+    Çoğu endpoint varsayılan olarak streaming (`stream: true`) yanıt döner.
+    `stream: false` ile tek seferde tam yanıt alınabilir.
+  version: "1.0.0"
+  contact:
+    name: Ollama
+    url: https://ollama.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://192.168.1.8:11434
+    description: GPU Sunucusu (LAN)
+  - url: http://100.75.67.64:11434
+    description: GPU Sunucusu (Tailscale)
+  - url: http://localhost:11434
+    description: Yerel Ollama sunucusu
+
+tags:
+  - name: Generate
+    description: Metin üretme endpoint'leri
+  - name: Chat
+    description: Sohbet (mesaj tabanlı) endpoint'leri
+  - name: Model Management
+    description: Model yönetimi (listeleme, oluşturma, silme vb.)
+  - name: Blobs
+    description: Binary Large Object (blob) işlemleri
+  - name: System
+    description: Sunucu bilgileri ve durum
+
+paths:
+  /:
+    get:
+      tags: [System]
+      summary: Ollama sunucu durumu
+      description: Ollama sunucusunun çalışıp çalışmadığını kontrol eder.
+      operationId: checkStatus
+      responses:
+        "200":
+          description: Sunucu çalışıyor
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Ollama is running"
+
+  /api/version:
+    get:
+      tags: [System]
+      summary: Ollama versiyonu
+      description: Çalışan Ollama sunucusunun versiyon bilgisini döner.
+      operationId: getVersion
+      responses:
+        "200":
+          description: Versiyon bilgisi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    example: "0.16.1"
+
+  /api/tags:
+    get:
+      tags: [Model Management]
+      summary: Yüklü modelleri listele
+      description: Sistemde mevcut olan tüm modellerin listesini döner.
+      operationId: listModels
+      responses:
+        "200":
+          description: Model listesi
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelListResponse"
+              example:
+                models:
+                  - name: "qwen3:4b"
+                    model: "qwen3:4b"
+                    modified_at: "2025-05-20T10:30:00Z"
+                    size: 2500000000
+                    digest: "sha256:abc123..."
+                    details:
+                      parent_model: ""
+                      format: "gguf"
+                      family: "qwen3"
+                      families:
+                        - "qwen3"
+                      parameter_size: "4.0B"
+                      quantization_level: "Q4_K_M"
+
+  /api/ps:
+    get:
+      tags: [System]
+      summary: Çalışan modelleri listele
+      description: Şu anda bellekte yüklü olan ve çalışan modelleri listeler.
+      operationId: listRunningModels
+      responses:
+        "200":
+          description: Çalışan model listesi
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunningModelsResponse"
+              example:
+                models:
+                  - name: "qwen3:4b"
+                    model: "qwen3:4b"
+                    size: 10500000000
+                    digest: "sha256:abc123..."
+                    details:
+                      parent_model: ""
+                      format: "gguf"
+                      family: "qwen3"
+                      families:
+                        - "qwen3"
+                      parameter_size: "4.0B"
+                      quantization_level: "Q4_K_M"
+                    expires_at: "2026-02-16T12:00:00Z"
+                    size_vram: 10500000000
+
+  /api/generate:
+    post:
+      tags: [Generate]
+      summary: Text completion (metin üretme)
+      description: |
+        Verilen prompt'a göre metin üretir.
+
+        ## Streaming
+        Varsayılan olarak `stream: true`'dur ve yanıtlar satır satır JSON nesneleri olarak gelir.
+        `stream: false` ile tek seferde tam yanıt alınabilir.
+
+        ## Thinking Mode (qwen3:4b)
+        qwen3:4b modeli reasoning/thinking destekler. `think` parametresi ile kontrol edilir:
+        - `/think` - prompt içinde thinking modu aktifleştirir
+        - `/no_think` - thinking modunu devre dışı bırakır
+
+        ## Format
+        `format` parametresi ile JSON çıktı zorunlu kılınabilir.
+      operationId: generate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateRequest"
+            examples:
+              basic:
+                summary: Basit metin üretme
+                value:
+                  model: "qwen3:4b"
+                  prompt: "Türkiye'nin başkenti neresidir?"
+                  stream: false
+              with_options:
+                summary: Özel parametrelerle
+                value:
+                  model: "qwen3:4b"
+                  prompt: "Python'da fibonacci fonksiyonu yaz"
+                  stream: false
+                  options:
+                    temperature: 0.3
+                    top_p: 0.9
+                    num_predict: 512
+              thinking_mode:
+                summary: Thinking mode aktif
+                value:
+                  model: "qwen3:4b"
+                  prompt: "/think\n25 * 37 kaçtır? Adım adım düşün."
+                  stream: false
+              json_format:
+                summary: JSON formatında yanıt
+                value:
+                  model: "qwen3:4b"
+                  prompt: "3 Türk şehrini JSON formatında listele: {\"cities\": [...]}"
+                  stream: false
+                  format: "json"
+              with_system:
+                summary: System prompt ile
+                value:
+                  model: "qwen3:4b"
+                  prompt: "Merhaba, nasılsın?"
+                  system: "Sen yardımsever bir Türkçe asistansın. Kısa ve öz cevaplar ver."
+                  stream: false
+              with_context:
+                summary: Önceki bağlam ile (çok turlu)
+                value:
+                  model: "qwen3:4b"
+                  prompt: "Devam et"
+                  context: [1, 2, 3, 4, 5]
+                  stream: false
+              raw_mode:
+                summary: Raw mode (template uygulanmaz)
+                value:
+                  model: "qwen3:4b"
+                  prompt: "<|im_start|>user\nMerhaba<|im_end|>\n<|im_start|>assistant\n"
+                  raw: true
+                  stream: false
+      responses:
+        "200":
+          description: |
+            Başarılı yanıt.
+            - `stream: false` ise tek JSON nesnesi döner.
+            - `stream: true` (varsayılan) ise satır satır JSON nesneleri döner (NDJSON).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateResponse"
+              example:
+                model: "qwen3:4b"
+                created_at: "2026-02-16T10:00:00Z"
+                response: "Türkiye'nin başkenti Ankara'dır."
+                done: true
+                done_reason: "stop"
+                context: [1, 2, 3]
+                total_duration: 1500000000
+                load_duration: 50000000
+                prompt_eval_count: 12
+                prompt_eval_duration: 200000000
+                eval_count: 15
+                eval_duration: 1200000000
+        "404":
+          description: Model bulunamadı
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "model 'nonexistent' not found"
+
+  /api/chat:
+    post:
+      tags: [Chat]
+      summary: Chat completion (sohbet)
+      description: |
+        Mesaj tabanlı sohbet tamamlama. Çok turlu konuşma desteği sağlar.
+
+        ## Mesaj Rolleri
+        - `system`: Sistem talimatı (opsiyonel, ilk mesaj olmalı)
+        - `user`: Kullanıcı mesajı
+        - `assistant`: Asistan yanıtı (çok turlu konuşma için)
+        - `tool`: Araç çağrısı sonucu
+
+        ## Thinking Mode (qwen3:4b)
+        Mesaj içeriğinde `/think` veya `/no_think` kullanılabilir.
+        Thinking modu aktifken yanıtta `<think>...</think>` blokları görünür.
+
+        ## Tool Calling (qwen3:4b)
+        `tools` parametresi ile fonksiyon tanımları gönderilebilir.
+        Model uygun gördüğünde `tool_calls` döner.
+
+        ## Streaming
+        Varsayılan `stream: true`. Her token için ayrı JSON nesnesi döner.
+      operationId: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+            examples:
+              basic:
+                summary: Basit sohbet
+                value:
+                  model: "qwen3:4b"
+                  messages:
+                    - role: "user"
+                      content: "Merhaba! Kendini tanıt."
+                  stream: false
+              with_system:
+                summary: System mesajı ile
+                value:
+                  model: "qwen3:4b"
+                  messages:
+                    - role: "system"
+                      content: "Sen deneyimli bir Python geliştiricisisin. Kısa ve teknik cevaplar ver."
+                    - role: "user"
+                      content: "List comprehension nedir?"
+                  stream: false
+              multi_turn:
+                summary: Çok turlu konuşma
+                value:
+                  model: "qwen3:4b"
+                  messages:
+                    - role: "user"
+                      content: "Python'da decorator nedir?"
+                    - role: "assistant"
+                      content: "Decorator, bir fonksiyonu sarmalayarak davranışını değiştiren bir fonksiyondur."
+                    - role: "user"
+                      content: "Bir örnek verir misin?"
+                  stream: false
+              thinking_mode:
+                summary: Thinking mode aktif
+                value:
+                  model: "qwen3:4b"
+                  messages:
+                    - role: "user"
+                      content: "/think\nBir çiftçinin 17 koyunu var. 9'u hariç hepsi ölür. Kaç koyun kalır?"
+                  stream: false
+              thinking_disabled:
+                summary: Thinking mode kapalı
+                value:
+                  model: "qwen3:4b"
+                  messages:
+                    - role: "user"
+                      content: "/no_think\nMerhaba, bugün hava nasıl?"
+                  stream: false
+              tool_calling:
+                summary: Tool calling örneği
+                value:
+                  model: "qwen3:4b"
+                  messages:
+                    - role: "user"
+                      content: "İstanbul'da hava durumu nasıl?"
+                  tools:
+                    - type: "function"
+                      function:
+                        name: "get_weather"
+                        description: "Belirtilen şehir için hava durumu bilgisi getirir"
+                        parameters:
+                          type: "object"
+                          properties:
+                            city:
+                              type: "string"
+                              description: "Şehir adı"
+                            unit:
+                              type: "string"
+                              enum: ["celsius", "fahrenheit"]
+                              description: "Sıcaklık birimi"
+                          required: ["city"]
+                  stream: false
+              tool_response:
+                summary: Tool yanıtı ile devam etme
+                value:
+                  model: "qwen3:4b"
+                  messages:
+                    - role: "user"
+                      content: "İstanbul'da hava durumu nasıl?"
+                    - role: "assistant"
+                      content: ""
+                      tool_calls:
+                        - function:
+                            name: "get_weather"
+                            arguments:
+                              city: "İstanbul"
+                              unit: "celsius"
+                    - role: "tool"
+                      content: "{\"temperature\": 12, \"condition\": \"Parçalı bulutlu\", \"humidity\": 65}"
+                  stream: false
+              json_format:
+                summary: JSON formatında yanıt
+                value:
+                  model: "qwen3:4b"
+                  messages:
+                    - role: "user"
+                      content: "3 programlama dilini JSON olarak listele"
+                  format: "json"
+                  stream: false
+              with_options:
+                summary: Özel parametrelerle
+                value:
+                  model: "qwen3:4b"
+                  messages:
+                    - role: "user"
+                      content: "Kısa bir şiir yaz"
+                  stream: false
+                  options:
+                    temperature: 0.9
+                    top_p: 0.95
+                    top_k: 40
+                    num_predict: 256
+                    repeat_penalty: 1.1
+      responses:
+        "200":
+          description: |
+            Başarılı yanıt.
+            - `stream: false`: Tek JSON nesnesi.
+            - `stream: true`: Satır satır NDJSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+              examples:
+                normal:
+                  summary: Normal yanıt
+                  value:
+                    model: "qwen3:4b"
+                    created_at: "2026-02-16T10:00:00Z"
+                    message:
+                      role: "assistant"
+                      content: "Merhaba! Ben qwen3 tabanlı bir yapay zeka asistanıyım."
+                    done: true
+                    done_reason: "stop"
+                    total_duration: 2000000000
+                    load_duration: 50000000
+                    prompt_eval_count: 20
+                    prompt_eval_duration: 300000000
+                    eval_count: 25
+                    eval_duration: 1600000000
+                tool_call:
+                  summary: Tool call yanıtı
+                  value:
+                    model: "qwen3:4b"
+                    created_at: "2026-02-16T10:00:00Z"
+                    message:
+                      role: "assistant"
+                      content: ""
+                      tool_calls:
+                        - function:
+                            name: "get_weather"
+                            arguments:
+                              city: "İstanbul"
+                              unit: "celsius"
+                    done: true
+                    done_reason: "stop"
+                    total_duration: 1500000000
+                thinking:
+                  summary: Thinking mode yanıtı
+                  value:
+                    model: "qwen3:4b"
+                    created_at: "2026-02-16T10:00:00Z"
+                    message:
+                      role: "assistant"
+                      content: "<think>\nÇiftçinin 17 koyunu var. 9'u hariç hepsi ölür demek, 9 koyun hayatta kalır demektir.\n</think>\n\n9 koyun kalır."
+                    done: true
+                    done_reason: "stop"
+        "404":
+          description: Model bulunamadı
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/show:
+    post:
+      tags: [Model Management]
+      summary: Model bilgisi göster
+      description: |
+        Belirtilen modelin detaylı bilgilerini döner.
+        Modelfile, parametreler, template ve lisans bilgilerini içerir.
+      operationId: showModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                model:
+                  type: string
+                  description: Model adı
+                  example: "qwen3:4b"
+                verbose:
+                  type: boolean
+                  description: Detaylı bilgi (tensör bilgileri dahil)
+                  default: false
+            examples:
+              basic:
+                summary: Temel bilgi
+                value:
+                  model: "qwen3:4b"
+              verbose:
+                summary: Detaylı bilgi
+                value:
+                  model: "qwen3:4b"
+                  verbose: true
+      responses:
+        "200":
+          description: Model detayları
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShowModelResponse"
+              example:
+                modelfile: "# Modelfile generated by \"ollama show\"\nFROM qwen3:4b\nTEMPLATE \"\"\"...\"\"\"\nPARAMETER temperature 0.6\nPARAMETER top_p 0.95\nPARAMETER top_k 20\nPARAMETER repeat_penalty 1"
+                parameters: "temperature 0.6\ntop_p 0.95\ntop_k 20\nrepeat_penalty 1"
+                template: "{{- if .System }}<|im_start|>system\n{{ .System }}<|im_end|>\n{{- end }}{{- range .Messages }}<|im_start|>{{ .Role }}\n{{ .Content }}<|im_end|>\n{{- end }}<|im_start|>assistant\n"
+                details:
+                  parent_model: ""
+                  format: "gguf"
+                  family: "qwen3"
+                  families:
+                    - "qwen3"
+                  parameter_size: "4.0B"
+                  quantization_level: "Q4_K_M"
+                model_info:
+                  general.architecture: "qwen3"
+                  general.parameter_count: 4022468096
+                  general.file_type: 15
+                  general.quantization_version: 2
+                  qwen3.context_length: 262144
+        "404":
+          description: Model bulunamadı
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/pull:
+    post:
+      tags: [Model Management]
+      summary: Model indir
+      description: |
+        Ollama kütüphanesinden model indirir.
+        Varsayılan olarak streaming ile ilerleme bilgisi döner.
+      operationId: pullModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                model:
+                  type: string
+                  description: İndirilecek model adı
+                  example: "qwen3:4b"
+                insecure:
+                  type: boolean
+                  description: Güvensiz bağlantıya izin ver
+                  default: false
+                stream:
+                  type: boolean
+                  description: İlerleme bilgisini stream et
+                  default: true
+            examples:
+              basic:
+                summary: Model indir
+                value:
+                  model: "qwen3:4b"
+              no_stream:
+                summary: Streaming kapalı
+                value:
+                  model: "qwen3:4b"
+                  stream: false
+      responses:
+        "200":
+          description: |
+            İndirme durumu.
+            Streaming modunda satır satır ilerleme bilgisi döner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PullResponse"
+              example:
+                status: "downloading sha256:abc123..."
+                digest: "sha256:abc123..."
+                total: 2500000000
+                completed: 1250000000
+
+  /api/push:
+    post:
+      tags: [Model Management]
+      summary: Model yükle (registry'ye)
+      description: |
+        Yerel modeli Ollama registry'sine yükler.
+        Önce `ollama.com` hesabı ve erişim anahtarı gereklidir.
+      operationId: pushModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                model:
+                  type: string
+                  description: Yüklenecek model adı (namespace/model formatında)
+                  example: "username/mymodel:latest"
+                insecure:
+                  type: boolean
+                  description: Güvensiz bağlantıya izin ver
+                  default: false
+                stream:
+                  type: boolean
+                  description: İlerleme bilgisini stream et
+                  default: true
+      responses:
+        "200":
+          description: Yükleme durumu
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushResponse"
+              example:
+                status: "pushing manifest"
+
+  /api/create:
+    post:
+      tags: [Model Management]
+      summary: Model oluştur
+      description: |
+        Modelfile kullanarak yeni bir model oluşturur veya mevcut modeli özelleştirir.
+
+        ## Modelfile Örneği (qwen3:4b bazlı)
+        ```
+        FROM qwen3:4b
+        SYSTEM "Sen yardımsever bir Türkçe asistansın."
+        PARAMETER temperature 0.7
+        PARAMETER top_p 0.9
+        ```
+      operationId: createModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                model:
+                  type: string
+                  description: Oluşturulacak model adı
+                  example: "my-turkish-assistant"
+                modelfile:
+                  type: string
+                  description: Modelfile içeriği
+                  example: "FROM qwen3:4b\nSYSTEM \"Sen yardımsever bir Türkçe asistansın.\"\nPARAMETER temperature 0.7"
+                path:
+                  type: string
+                  description: Modelfile dosya yolu (modelfile yerine)
+                quantize:
+                  type: string
+                  description: Quantization seviyesi
+                  enum: ["q4_0", "q4_1", "q5_0", "q5_1", "q8_0", "f16", "f32"]
+                stream:
+                  type: boolean
+                  description: İlerleme bilgisini stream et
+                  default: true
+            examples:
+              from_modelfile:
+                summary: Modelfile ile özel model
+                value:
+                  model: "turkish-qwen"
+                  modelfile: "FROM qwen3:4b\nSYSTEM \"Sen yardımsever bir Türkçe asistansın. Her zaman Türkçe yanıt ver.\"\nPARAMETER temperature 0.7\nPARAMETER top_p 0.9\nPARAMETER num_ctx 8192"
+                  stream: false
+              from_path:
+                summary: Dosya yolu ile
+                value:
+                  model: "my-model"
+                  path: "/path/to/Modelfile"
+                  stream: false
+      responses:
+        "200":
+          description: Oluşturma durumu
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateResponse"
+              example:
+                status: "success"
+
+  /api/copy:
+    post:
+      tags: [Model Management]
+      summary: Model kopyala
+      description: Mevcut bir modeli yeni bir isimle kopyalar.
+      operationId: copyModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, destination]
+              properties:
+                source:
+                  type: string
+                  description: Kaynak model adı
+                  example: "qwen3:4b"
+                destination:
+                  type: string
+                  description: Hedef model adı
+                  example: "qwen3-backup:4b"
+            examples:
+              basic:
+                summary: Model kopyala
+                value:
+                  source: "qwen3:4b"
+                  destination: "qwen3-backup:4b"
+      responses:
+        "200":
+          description: Kopyalama başarılı
+        "404":
+          description: Kaynak model bulunamadı
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/delete:
+    delete:
+      tags: [Model Management]
+      summary: Model sil
+      description: Belirtilen modeli ve verilerini siler.
+      operationId: deleteModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                model:
+                  type: string
+                  description: Silinecek model adı
+                  example: "qwen3-backup:4b"
+            examples:
+              basic:
+                summary: Model sil
+                value:
+                  model: "qwen3-backup:4b"
+      responses:
+        "200":
+          description: Silme başarılı
+        "404":
+          description: Model bulunamadı
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/embed:
+    post:
+      tags: [Generate]
+      summary: Embedding üret
+      description: |
+        Verilen metin için embedding vektörü üretir.
+
+        **Not:** qwen3:4b bir embedding modeli değildir. Bu endpoint için
+        `nomic-embed-text`, `all-minilm` veya `mxbai-embed-large` gibi
+        özel embedding modelleri kullanılmalıdır.
+      operationId: embed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmbedRequest"
+            examples:
+              single:
+                summary: Tek metin embedding
+                value:
+                  model: "nomic-embed-text"
+                  input: "Merhaba dünya"
+              multiple:
+                summary: Çoklu metin embedding
+                value:
+                  model: "nomic-embed-text"
+                  input:
+                    - "Birinci cümle"
+                    - "İkinci cümle"
+                    - "Üçüncü cümle"
+              with_options:
+                summary: Truncate ile
+                value:
+                  model: "nomic-embed-text"
+                  input: "Uzun bir metin..."
+                  truncate: true
+      responses:
+        "200":
+          description: Embedding vektörleri
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedResponse"
+              example:
+                model: "nomic-embed-text"
+                embeddings:
+                  - [0.123, -0.456, 0.789, 0.012]
+                total_duration: 500000000
+                load_duration: 100000000
+                prompt_eval_count: 4
+
+  /api/blobs/{digest}:
+    head:
+      tags: [Blobs]
+      summary: Blob varlığını kontrol et
+      description: Belirtilen digest'e sahip blob'un sunucuda var olup olmadığını kontrol eder.
+      operationId: checkBlob
+      parameters:
+        - name: digest
+          in: path
+          required: true
+          description: "Blob digest'i (SHA256 formatında)"
+          schema:
+            type: string
+            example: "sha256:29fdb92e57cf0827ded04ae6461b5931d01fa590"
+      responses:
+        "200":
+          description: Blob mevcut
+        "404":
+          description: Blob bulunamadı
+    post:
+      tags: [Blobs]
+      summary: Blob oluştur
+      description: Sunucuda yeni bir blob oluşturur. Model oluşturma sürecinde kullanılır.
+      operationId: createBlob
+      parameters:
+        - name: digest
+          in: path
+          required: true
+          description: "Blob digest'i (SHA256 formatında)"
+          schema:
+            type: string
+            example: "sha256:29fdb92e57cf0827ded04ae6461b5931d01fa590"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: Blob verisi (binary)
+      responses:
+        "201":
+          description: Blob oluşturuldu
+        "400":
+          description: Geçersiz digest
+
+components:
+  schemas:
+    GenerateRequest:
+      type: object
+      required: [model, prompt]
+      properties:
+        model:
+          type: string
+          description: Model adı
+          example: "qwen3:4b"
+        prompt:
+          type: string
+          description: |
+            Üretim için giriş metni.
+            `/think` veya `/no_think` ile thinking modu kontrol edilebilir.
+          example: "Merhaba, nasılsın?"
+        suffix:
+          type: string
+          description: Üretilen metnin sonuna eklenecek metin (fill-in-the-middle)
+        images:
+          type: array
+          description: "Base64 kodlanmış görsel listesi (multimodal modeller için)"
+          items:
+            type: string
+            format: byte
+        system:
+          type: string
+          description: System prompt (model davranışını belirler)
+          example: "Sen yardımsever bir asistansın."
+        template:
+          type: string
+          description: Özel prompt template'i (Modelfile template'ini geçersiz kılar)
+        context:
+          type: array
+          description: "Önceki generate yanıtından dönen context (çok turlu konuşma için)"
+          items:
+            type: integer
+        raw:
+          type: boolean
+          description: "true ise template uygulanmaz, prompt olduğu gibi gönderilir"
+          default: false
+        format:
+          description: "Yanıt formatı. 'json' veya bir JSON schema nesnesi"
+          oneOf:
+            - type: string
+              enum: ["json"]
+            - type: object
+              description: JSON Schema nesnesi
+        stream:
+          type: boolean
+          description: "Yanıtı stream et"
+          default: true
+        keep_alive:
+          description: "Model bellekte kalma süresi. Varsayılan 5m. 0 = hemen kaldır, -1 = süresiz"
+          oneOf:
+            - type: string
+              example: "5m"
+            - type: integer
+              example: 300
+        options:
+          $ref: "#/components/schemas/ModelOptions"
+
+    GenerateResponse:
+      type: object
+      properties:
+        model:
+          type: string
+          description: Kullanılan model
+        created_at:
+          type: string
+          format: date-time
+          description: Yanıt oluşturma zamanı
+        response:
+          type: string
+          description: Üretilen metin
+        done:
+          type: boolean
+          description: Üretim tamamlandı mı
+        done_reason:
+          type: string
+          description: "Tamamlanma nedeni: stop, length, load"
+          enum: ["stop", "length", "load"]
+        context:
+          type: array
+          description: Sonraki istek için kullanılacak bağlam tokenları
+          items:
+            type: integer
+        total_duration:
+          type: integer
+          format: int64
+          description: Toplam süre (nanosaniye)
+        load_duration:
+          type: integer
+          format: int64
+          description: Model yükleme süresi (nanosaniye)
+        prompt_eval_count:
+          type: integer
+          description: Prompt'taki değerlendirilen token sayısı
+        prompt_eval_duration:
+          type: integer
+          format: int64
+          description: Prompt değerlendirme süresi (nanosaniye)
+        eval_count:
+          type: integer
+          description: Üretilen token sayısı
+        eval_duration:
+          type: integer
+          format: int64
+          description: Üretim süresi (nanosaniye)
+
+    ChatRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          description: Model adı
+          example: "qwen3:4b"
+        messages:
+          type: array
+          description: Mesaj listesi
+          items:
+            $ref: "#/components/schemas/Message"
+        tools:
+          type: array
+          description: |
+            Kullanılabilir araç (fonksiyon) tanımları.
+            qwen3:4b tool calling destekler.
+          items:
+            $ref: "#/components/schemas/Tool"
+        format:
+          description: "Yanıt formatı. 'json' veya bir JSON schema nesnesi"
+          oneOf:
+            - type: string
+              enum: ["json"]
+            - type: object
+              description: JSON Schema nesnesi
+        stream:
+          type: boolean
+          description: "Yanıtı stream et"
+          default: true
+        keep_alive:
+          description: "Model bellekte kalma süresi"
+          oneOf:
+            - type: string
+              example: "5m"
+            - type: integer
+              example: 300
+        options:
+          $ref: "#/components/schemas/ModelOptions"
+
+    ChatResponse:
+      type: object
+      properties:
+        model:
+          type: string
+          description: Kullanılan model
+        created_at:
+          type: string
+          format: date-time
+          description: Yanıt oluşturma zamanı
+        message:
+          $ref: "#/components/schemas/Message"
+        done:
+          type: boolean
+          description: Üretim tamamlandı mı
+        done_reason:
+          type: string
+          description: Tamamlanma nedeni
+          enum: ["stop", "length", "load"]
+        total_duration:
+          type: integer
+          format: int64
+          description: Toplam süre (nanosaniye)
+        load_duration:
+          type: integer
+          format: int64
+          description: Model yükleme süresi (nanosaniye)
+        prompt_eval_count:
+          type: integer
+          description: Prompt'taki token sayısı
+        prompt_eval_duration:
+          type: integer
+          format: int64
+          description: Prompt değerlendirme süresi (nanosaniye)
+        eval_count:
+          type: integer
+          description: Üretilen token sayısı
+        eval_duration:
+          type: integer
+          format: int64
+          description: Üretim süresi (nanosaniye)
+
+    Message:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          description: "Mesaj rolü"
+          enum: ["system", "user", "assistant", "tool"]
+        content:
+          type: string
+          description: |
+            Mesaj içeriği.
+            - `/think` ile thinking modu aktifleştirilebilir
+            - `/no_think` ile thinking modu kapatılabilir
+            - Thinking yanıtları `<think>...</think>` blokları içerir
+        images:
+          type: array
+          description: "Base64 kodlanmış görseller (multimodal modeller için)"
+          items:
+            type: string
+            format: byte
+        tool_calls:
+          type: array
+          description: "Asistan tarafından yapılan araç çağrıları"
+          items:
+            $ref: "#/components/schemas/ToolCall"
+
+    Tool:
+      type: object
+      required: [type, function]
+      properties:
+        type:
+          type: string
+          description: Araç türü
+          enum: ["function"]
+        function:
+          type: object
+          required: [name, description, parameters]
+          properties:
+            name:
+              type: string
+              description: Fonksiyon adı
+              example: "get_weather"
+            description:
+              type: string
+              description: Fonksiyon açıklaması
+              example: "Belirtilen şehir için hava durumu bilgisi getirir"
+            parameters:
+              type: object
+              description: "JSON Schema formatında parametre tanımları"
+              properties:
+                type:
+                  type: string
+                  enum: ["object"]
+                properties:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      description:
+                        type: string
+                      enum:
+                        type: array
+                        items:
+                          type: string
+                required:
+                  type: array
+                  items:
+                    type: string
+
+    ToolCall:
+      type: object
+      properties:
+        function:
+          type: object
+          properties:
+            name:
+              type: string
+              description: Çağrılan fonksiyon adı
+            arguments:
+              type: object
+              description: Fonksiyona gönderilen argümanlar
+              additionalProperties: true
+
+    ModelOptions:
+      type: object
+      description: |
+        Model çalıştırma parametreleri. Tüm parametreler opsiyoneldir.
+        Belirtilmezse model varsayılanları kullanılır.
+
+        ## qwen3:4b Varsayılanları
+        - temperature: 0.6
+        - top_p: 0.95
+        - top_k: 20
+        - repeat_penalty: 1.0
+      properties:
+        # Sampling parametreleri
+        temperature:
+          type: number
+          format: float
+          description: |
+            Rastgelelik seviyesi. Yüksek değer = daha yaratıcı, düşük = daha deterministik.
+            - 0.0: Tamamen deterministik (greedy)
+            - 0.3-0.5: Odaklı, tutarlı yanıtlar (kod, teknik)
+            - 0.6: qwen3:4b varsayılanı
+            - 0.7-0.9: Yaratıcı metin üretimi
+            - 1.0+: Çok rastgele (genelde önerilmez)
+          default: 0.6
+          minimum: 0.0
+          maximum: 2.0
+          example: 0.6
+        top_p:
+          type: number
+          format: float
+          description: |
+            Nucleus sampling. Kümülatif olasılığı bu değere ulaşan en küçük token kümesinden seçim yapar.
+            - 0.1: Çok dar, sadece en olası tokenlar
+            - 0.5: Orta çeşitlilik
+            - 0.9: Geniş çeşitlilik
+            - 0.95: qwen3:4b varsayılanı
+            - 1.0: Tüm tokenlar (top_p devre dışı)
+          default: 0.95
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.95
+        top_k:
+          type: integer
+          description: |
+            Her adımda en yüksek olasılıklı K token arasından seçim yapar.
+            - 1: Greedy decoding (sadece en olası)
+            - 20: qwen3:4b varsayılanı
+            - 40: Yaygın kullanım
+            - 100: Geniş çeşitlilik
+            - 0: Devre dışı (tüm tokenlar)
+          default: 20
+          minimum: 0
+          example: 20
+        min_p:
+          type: number
+          format: float
+          description: |
+            Minimum olasılık eşiği. En olası token'ın olasılığının bu katından düşük tokenlar elenir.
+            - 0.0: Devre dışı
+            - 0.05: Düşük olasılıklı tokenları eler
+            - 0.1: Daha agresif eleme
+          default: 0.0
+          minimum: 0.0
+          maximum: 1.0
+
+        # Repetition control
+        repeat_penalty:
+          type: number
+          format: float
+          description: |
+            Tekrar cezası. Daha önce üretilen tokenların tekrar seçilme olasılığını düşürür.
+            - 1.0: Ceza yok (qwen3:4b varsayılanı)
+            - 1.1: Hafif tekrar cezası
+            - 1.5: Güçlü tekrar cezası
+            - 2.0: Çok güçlü (genelde önerilmez)
+          default: 1.0
+          minimum: 0.0
+          example: 1.0
+        repeat_last_n:
+          type: integer
+          description: |
+            Tekrar cezası için geriye bakılacak token sayısı.
+            - 0: Devre dışı
+            - 64: Varsayılan
+            - -1: Tüm context'e bak
+          default: 64
+          minimum: -1
+        frequency_penalty:
+          type: number
+          format: float
+          description: |
+            Frekans cezası. Token'ın metinde kaç kez geçtiğine göre ceza uygular.
+            Tekrar eden ifadeleri azaltır.
+          default: 0.0
+        presence_penalty:
+          type: number
+          format: float
+          description: |
+            Varlık cezası. Token metinde en az bir kez geçtiyse ceza uygular.
+            Yeni konulara geçişi teşvik eder.
+          default: 0.0
+
+        # Context ve üretim limitleri
+        num_ctx:
+          type: integer
+          description: |
+            Context penceresi boyutu (token).
+            qwen3:4b max 262,144 token destekler.
+            Daha büyük context = daha fazla VRAM kullanımı.
+            - 2048: Minimum
+            - 4096: Hafif kullanım
+            - 8192: Yaygın kullanım
+            - 32768: Uzun metin işleme
+            - 262144: Maksimum (çok yüksek VRAM gerektirir)
+          default: 32768
+          minimum: 1
+          example: 8192
+        num_predict:
+          type: integer
+          description: |
+            Maksimum üretilecek token sayısı.
+            - -1: Sınırsız (EOS token'a kadar)
+            - -2: Context'i doldur
+            - 128: Kısa yanıtlar
+            - 512: Orta yanıtlar
+            - 2048: Uzun yanıtlar
+          default: -1
+          minimum: -2
+          example: 512
+        num_batch:
+          type: integer
+          description: "Prompt işleme batch boyutu"
+          default: 512
+        num_keep:
+          type: integer
+          description: "Context taşması durumunda korunacak başlangıç token sayısı"
+          default: 4
+
+        # Donanım ve performans
+        num_gpu:
+          type: integer
+          description: |
+            GPU'ya gönderilecek katman sayısı.
+            - 0: Sadece CPU
+            - -1: Tüm katmanlar GPU'da (varsayılan, GPU varsa)
+          default: -1
+          minimum: -1
+        num_thread:
+          type: integer
+          description: |
+            CPU thread sayısı. 0 = otomatik (çekirdek sayısı kadar).
+            Sadece CPU kullanımında etkilidir.
+          default: 0
+          minimum: 0
+        main_gpu:
+          type: integer
+          description: "Birden fazla GPU varsa ana GPU indeksi"
+          default: 0
+        low_vram:
+          type: boolean
+          description: "Düşük VRAM modu. VRAM kullanımını azaltır ama yavaşlatır."
+          default: false
+        use_mmap:
+          type: boolean
+          description: "Memory-mapped dosya kullan (daha hızlı model yükleme)"
+          default: true
+        use_mlock:
+          type: boolean
+          description: "Modeli RAM'de kilitle (swap'a gitmesini engeller)"
+          default: false
+        f16_kv:
+          type: boolean
+          description: "KV cache için FP16 kullan (daha az bellek, minimal kalite kaybı)"
+          default: true
+        vocab_only:
+          type: boolean
+          description: "Sadece vocabulary yükle (model ağırlıkları yüklenmez)"
+          default: false
+
+        # Gelişmiş sampling
+        seed:
+          type: integer
+          description: |
+            Rastgele tohum. Aynı seed + aynı prompt = aynı yanıt (tekrarlanabilirlik).
+            - 0: Rastgele (varsayılan)
+            - Herhangi bir pozitif tamsayı: Sabit seed
+          default: 0
+          example: 42
+        tfs_z:
+          type: number
+          format: float
+          description: |
+            Tail-free sampling parametresi.
+            - 1.0: Devre dışı (varsayılan)
+            - 0.5-0.9: Düşük olasılıklı kuyrukları keser
+          default: 1.0
+          minimum: 0.0
+        typical_p:
+          type: number
+          format: float
+          description: |
+            Typical sampling. Bilgi içeriği tipik olana yakın tokenları seçer.
+            - 1.0: Devre dışı (varsayılan)
+            - 0.7-0.9: Daha tutarlı metin
+          default: 1.0
+          minimum: 0.0
+          maximum: 1.0
+        mirostat:
+          type: integer
+          description: |
+            Mirostat sampling algoritması. Perplexity'yi sabit tutarak kaliteyi artırır.
+            - 0: Devre dışı (varsayılan)
+            - 1: Mirostat v1
+            - 2: Mirostat v2 (önerilen)
+          default: 0
+          enum: [0, 1, 2]
+        mirostat_tau:
+          type: number
+          format: float
+          description: |
+            Mirostat hedef perplexity.
+            - 5.0: Varsayılan
+            - Düşük: Daha odaklı metin
+            - Yüksek: Daha çeşitli metin
+          default: 5.0
+        mirostat_eta:
+          type: number
+          format: float
+          description: |
+            Mirostat öğrenme oranı. Algoritmanın ne kadar hızlı adapte olduğunu belirler.
+          default: 0.1
+
+        # Stop sequences
+        stop:
+          type: array
+          description: |
+            Durma dizileri. Bu dizilerden biri üretildiğinde metin üretimi durur.
+            Örnek: ["\\n", "Human:", "###"]
+          items:
+            type: string
+          example: ["\n\nHuman:"]
+
+        # NUMA
+        numa:
+          type: boolean
+          description: "NUMA optimizasyonu (çok soketli sistemler için)"
+          default: false
+
+        # Penalize newline
+        penalize_newline:
+          type: boolean
+          description: "Yeni satır karakterlerine tekrar cezası uygula"
+          default: true
+
+    ModelListResponse:
+      type: object
+      properties:
+        models:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Model adı
+              model:
+                type: string
+                description: Model tanımlayıcısı
+              modified_at:
+                type: string
+                format: date-time
+                description: Son değişiklik zamanı
+              size:
+                type: integer
+                format: int64
+                description: Model boyutu (byte)
+              digest:
+                type: string
+                description: Model digest'i
+              details:
+                $ref: "#/components/schemas/ModelDetails"
+
+    RunningModelsResponse:
+      type: object
+      properties:
+        models:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              model:
+                type: string
+              size:
+                type: integer
+                format: int64
+                description: Bellekteki boyut (byte)
+              digest:
+                type: string
+              details:
+                $ref: "#/components/schemas/ModelDetails"
+              expires_at:
+                type: string
+                format: date-time
+                description: Bellekten kaldırılma zamanı
+              size_vram:
+                type: integer
+                format: int64
+                description: VRAM kullanımı (byte)
+
+    ShowModelResponse:
+      type: object
+      properties:
+        modelfile:
+          type: string
+          description: Model'in Modelfile içeriği
+        parameters:
+          type: string
+          description: Model parametreleri (metin formatında)
+        template:
+          type: string
+          description: Prompt template'i
+        details:
+          $ref: "#/components/schemas/ModelDetails"
+        model_info:
+          type: object
+          description: Detaylı model meta bilgileri
+          additionalProperties: true
+
+    ModelDetails:
+      type: object
+      properties:
+        parent_model:
+          type: string
+          description: Ana model (varsa)
+        format:
+          type: string
+          description: Model formatı
+          example: "gguf"
+        family:
+          type: string
+          description: Model ailesi
+          example: "qwen3"
+        families:
+          type: array
+          items:
+            type: string
+          description: Desteklenen aileler
+        parameter_size:
+          type: string
+          description: Parametre boyutu
+          example: "4.0B"
+        quantization_level:
+          type: string
+          description: Quantization seviyesi
+          example: "Q4_K_M"
+
+    EmbedRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model:
+          type: string
+          description: |
+            Embedding modeli adı.
+            **Not:** qwen3:4b embedding modeli değildir.
+            Önerilen modeller: nomic-embed-text, all-minilm, mxbai-embed-large
+          example: "nomic-embed-text"
+        input:
+          description: "Embedding üretilecek metin veya metin listesi"
+          oneOf:
+            - type: string
+              example: "Merhaba dünya"
+            - type: array
+              items:
+                type: string
+              example: ["Birinci cümle", "İkinci cümle"]
+        truncate:
+          type: boolean
+          description: "Context uzunluğunu aşan metni otomatik kes"
+          default: true
+        keep_alive:
+          description: "Model bellekte kalma süresi"
+          oneOf:
+            - type: string
+            - type: integer
+        options:
+          $ref: "#/components/schemas/ModelOptions"
+
+    EmbedResponse:
+      type: object
+      properties:
+        model:
+          type: string
+          description: Kullanılan model
+        embeddings:
+          type: array
+          description: Embedding vektörleri listesi
+          items:
+            type: array
+            items:
+              type: number
+              format: float
+        total_duration:
+          type: integer
+          format: int64
+        load_duration:
+          type: integer
+          format: int64
+        prompt_eval_count:
+          type: integer
+
+    PullResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: "İndirme durumu mesajı"
+          example: "downloading sha256:abc123..."
+        digest:
+          type: string
+          description: İndirilen katman digest'i
+        total:
+          type: integer
+          format: int64
+          description: Toplam boyut (byte)
+        completed:
+          type: integer
+          format: int64
+          description: İndirilen boyut (byte)
+
+    PushResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: "Yükleme durumu mesajı"
+        digest:
+          type: string
+        total:
+          type: integer
+          format: int64
+        completed:
+          type: integer
+          format: int64
+
+    CreateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: "Oluşturma durumu"
+          example: "success"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Hata mesajı
+          example: "model 'nonexistent' not found"

@@ -1,0 +1,5 @@
+{
+  "name": "Forge AI Studio",
+  "description": "A professional AI engineering dashboard for vLLM and OpenAI-compatible backends, featuring playground, model management, and embeddings visualization.",
+  "requestFramePermissions": []
+}

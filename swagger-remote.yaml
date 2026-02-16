@@ -1,0 +1,1297 @@
+openapi: 3.1.0
+info:
+  title: vLLM API - ITSM Assistant Backend
+  description: |
+    Qwen3-4B (Chat/Completions) ve Nomic Embed Text v1.5 (Embeddings) modelleri için
+    OpenAI-uyumlu vLLM API dokümantasyonu.
+
+    ## Sunucular
+    | Servis | Model | Port | VRAM |
+    |--------|-------|------|------|
+    | **vllm-chat** | `Qwen/Qwen3-4B` (FP16) | 8010 | ~8 GB |
+    | **vllm-embed** | `nomic-ai/nomic-embed-text-v1.5` (FP16) | 8011 | ~700 MB |
+
+    ## Qwen3 Thinking Mode
+    - Varsayılan olarak **açık** (`<think>` blokları üretir)
+    - Kapatmak için: `chat_template_kwargs: {"enable_thinking": false}` veya mesaj sonuna `/no_think` ekleyin
+    - Thinking açıkken önerilen: `temperature=0.6, top_p=0.95, top_k=20`
+    - Thinking kapalıyken önerilen: `temperature=0.7, top_p=0.8, top_k=20`
+    - **UYARI:** `temperature: 0` kullanmayın - sonsuz tekrar üretir
+
+    ## Kimlik Doğrulama
+    Gerekmez. `api_key` alanı herhangi bir değer alabilir (örn: `"not-needed"`).
+  version: 1.0.0
+  contact:
+    name: ITSM Admin
+
+servers:
+  - url: http://localhost:8010/v1
+    description: vLLM Chat (Qwen3-4B) - Yerel
+  - url: http://localhost:8011/v1
+    description: vLLM Embedding (Nomic) - Yerel
+  - url: http://31.206.209.189:8010/v1
+    description: vLLM Chat (Qwen3-4B) - Uzak
+  - url: http://31.206.209.189:8011/v1
+    description: vLLM Embedding (Nomic) - Uzak
+
+tags:
+  - name: Chat
+    description: Chat Completions API (port 8010)
+  - name: Completions
+    description: Text Completions API (port 8010)
+  - name: Embeddings
+    description: Embedding API (port 8011)
+  - name: Models
+    description: Model bilgileri
+  - name: Health
+    description: Sağlık kontrolleri
+  - name: Tokenizer
+    description: Tokenize / Detokenize araçları
+
+paths:
+  # ─────────────────────────────────────────────
+  #  CHAT COMPLETIONS
+  # ─────────────────────────────────────────────
+  /v1/chat/completions:
+    post:
+      tags: [Chat]
+      summary: Chat Completion oluştur
+      description: |
+        Mesaj listesine göre model yanıtı üretir. Tool calling, streaming ve thinking mode destekler.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+            examples:
+              basit_chat:
+                summary: Basit chat
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: system
+                      content: "Sen yardımcı bir IT asistanısın. Türkçe yanıt ver."
+                    - role: user
+                      content: "VPN bağlanamıyorum"
+                  max_tokens: 512
+                  temperature: 0.7
+                  top_p: 0.8
+                  top_k: 20
+                  chat_template_kwargs:
+                    enable_thinking: false
+
+              thinking_mode:
+                summary: Thinking mode açık (derin düşünme)
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: user
+                      content: "Bu SQL sorgusunu optimize et: SELECT * FROM tickets WHERE status='open' ORDER BY created_at"
+                  max_tokens: 2048
+                  temperature: 0.6
+                  top_p: 0.95
+                  top_k: 20
+
+              no_think_soft:
+                summary: /no_think soft switch
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: user
+                      content: "Merhaba, nasılsın? /no_think"
+                  max_tokens: 256
+                  temperature: 0.6
+                  top_p: 0.95
+
+              streaming:
+                summary: Streaming yanıt
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: user
+                      content: "Yapay zeka nedir?"
+                  max_tokens: 512
+                  temperature: 0.7
+                  top_p: 0.8
+                  stream: true
+                  stream_options:
+                    include_usage: true
+
+              tool_calling:
+                summary: Tool calling
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: system
+                      content: "Sen bir IT destek asistanısın."
+                    - role: user
+                      content: "Yazıcım çalışmıyor, ticket aç /no_think"
+                  tools:
+                    - type: function
+                      function:
+                        name: create_ticket
+                        description: "IT destek talebi oluşturur"
+                        parameters:
+                          type: object
+                          properties:
+                            title:
+                              type: string
+                              description: "Kısa başlık"
+                            description:
+                              type: string
+                              description: "Detaylı açıklama"
+                            urgency:
+                              type: string
+                              enum: [low, medium, high, critical]
+                          required: [title, description]
+                  tool_choice: auto
+                  parallel_tool_calls: true
+                  max_tokens: 512
+                  temperature: 0.6
+                  top_p: 0.95
+
+              tool_result:
+                summary: Tool sonucu ile devam
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: system
+                      content: "Sen bir IT destek asistanısın."
+                    - role: user
+                      content: "Yazıcım çalışmıyor"
+                    - role: assistant
+                      content: ""
+                      tool_calls:
+                        - id: "call_abc123"
+                          type: function
+                          function:
+                            name: create_ticket
+                            arguments: '{"title":"Yazıcı arızası","description":"Yazıcı çalışmıyor"}'
+                    - role: tool
+                      tool_call_id: "call_abc123"
+                      content: '{"success": true, "ticket_id": 42}'
+                  max_tokens: 256
+                  temperature: 0.7
+
+              json_mode:
+                summary: JSON çıktı formatı
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: user
+                      content: "İstanbul hakkında JSON formatında bilgi ver: {\"city\": ..., \"population\": ...}"
+                  response_format:
+                    type: json_object
+                  max_tokens: 256
+                  temperature: 0.7
+
+              repetition_fix:
+                summary: Tekrar problemi çözümü (presence_penalty)
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: user
+                      content: "Uzun bir hikaye yaz"
+                  max_tokens: 1024
+                  temperature: 0.7
+                  top_p: 0.8
+                  presence_penalty: 1.5
+                  frequency_penalty: 0.5
+
+              tum_parametreler:
+                summary: TÜM parametreler (referans)
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: system
+                      content: "System prompt"
+                    - role: user
+                      content: "User message"
+                  max_tokens: 512
+                  temperature: 0.7
+                  top_p: 0.8
+                  top_k: 20
+                  min_p: 0
+                  n: 1
+                  stream: false
+                  stream_options:
+                    include_usage: true
+                  stop: ["\n\n", "###"]
+                  stop_token_ids: []
+                  frequency_penalty: 0.0
+                  presence_penalty: 0.0
+                  repetition_penalty: 1.0
+                  length_penalty: 1.0
+                  seed: 42
+                  logprobs: false
+                  top_logprobs: 5
+                  echo: false
+                  tools: null
+                  tool_choice: "none"
+                  parallel_tool_calls: true
+                  response_format:
+                    type: text
+                  reasoning_effort: "medium"
+                  include_reasoning: true
+                  chat_template_kwargs:
+                    enable_thinking: true
+                  add_generation_prompt: true
+                  add_special_tokens: false
+                  skip_special_tokens: true
+                  include_stop_str_in_output: false
+                  ignore_eos: false
+                  min_tokens: 0
+                  truncate_prompt_tokens: null
+                  priority: 0
+                  user: "user-123"
+
+      responses:
+        '200':
+          description: Başarılı yanıt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+              examples:
+                normal:
+                  summary: Normal yanıt
+                  value:
+                    id: "chatcmpl-abc123"
+                    object: "chat.completion"
+                    created: 1771266744
+                    model: "Qwen/Qwen3-4B"
+                    choices:
+                      - index: 0
+                        message:
+                          role: assistant
+                          content: "2 + 2 = 4"
+                          tool_calls: []
+                        finish_reason: "stop"
+                    usage:
+                      prompt_tokens: 15
+                      completion_tokens: 10
+                      total_tokens: 25
+
+                with_thinking:
+                  summary: Thinking mode yanıtı
+                  value:
+                    id: "chatcmpl-def456"
+                    object: "chat.completion"
+                    created: 1771266800
+                    model: "Qwen/Qwen3-4B"
+                    choices:
+                      - index: 0
+                        message:
+                          role: assistant
+                          content: "<think>\nKullanıcı 2+2 sormuş...\n</think>\n\n2 + 2 = 4"
+                        finish_reason: "stop"
+                    usage:
+                      prompt_tokens: 15
+                      completion_tokens: 30
+                      total_tokens: 45
+
+                with_tool_call:
+                  summary: Tool call yanıtı
+                  value:
+                    id: "chatcmpl-ghi789"
+                    object: "chat.completion"
+                    created: 1771266900
+                    model: "Qwen/Qwen3-4B"
+                    choices:
+                      - index: 0
+                        message:
+                          role: assistant
+                          content: ""
+                          tool_calls:
+                            - id: "call_abc123"
+                              type: function
+                              function:
+                                name: "create_ticket"
+                                arguments: '{"title":"Yazıcı arızası","description":"Yazıcı çalışmıyor","urgency":"high"}'
+                        finish_reason: "tool_calls"
+                    usage:
+                      prompt_tokens: 200
+                      completion_tokens: 47
+                      total_tokens: 247
+
+  # ─────────────────────────────────────────────
+  #  TEXT COMPLETIONS
+  # ─────────────────────────────────────────────
+  /v1/completions:
+    post:
+      tags: [Completions]
+      summary: Text Completion oluştur
+      description: |
+        Ham metin tamamlama. Chat formatı yerine düz prompt kullanır.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompletionRequest'
+            examples:
+              basit:
+                summary: Basit tamamlama
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  prompt: "Türkiye'nin başkenti"
+                  max_tokens: 50
+                  temperature: 0.7
+                  top_p: 0.8
+                  top_k: 20
+
+              batch:
+                summary: Batch tamamlama (çoklu prompt)
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  prompt:
+                    - "Yapay zeka nedir?"
+                    - "Makine öğrenmesi nedir?"
+                  max_tokens: 100
+                  temperature: 0.7
+                  n: 1
+
+              tum_parametreler:
+                summary: TÜM parametreler
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  prompt: "Metin buraya"
+                  max_tokens: 256
+                  temperature: 0.7
+                  top_p: 0.8
+                  top_k: 20
+                  min_p: 0
+                  n: 1
+                  stream: false
+                  stop: ["\n"]
+                  stop_token_ids: []
+                  frequency_penalty: 0.0
+                  presence_penalty: 0.0
+                  repetition_penalty: 1.0
+                  length_penalty: 1.0
+                  seed: 42
+                  logprobs: 5
+                  echo: false
+                  suffix: null
+                  skip_special_tokens: true
+                  add_special_tokens: true
+                  include_stop_str_in_output: false
+                  ignore_eos: false
+                  min_tokens: 0
+                  truncate_prompt_tokens: null
+                  priority: 0
+                  user: "user-123"
+
+      responses:
+        '200':
+          description: Başarılı yanıt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletionResponse'
+              examples:
+                normal:
+                  value:
+                    id: "cmpl-abc123"
+                    object: "text_completion"
+                    created: 1771266744
+                    model: "Qwen/Qwen3-4B"
+                    choices:
+                      - index: 0
+                        text: " Ankara'dır. Türkiye'nin en büyük şehri ise İstanbul'dur."
+                        finish_reason: "stop"
+                    usage:
+                      prompt_tokens: 5
+                      completion_tokens: 15
+                      total_tokens: 20
+
+  # ─────────────────────────────────────────────
+  #  EMBEDDINGS
+  # ─────────────────────────────────────────────
+  /v1/embeddings:
+    post:
+      tags: [Embeddings]
+      summary: Embedding vektörü oluştur
+      description: |
+        Metin(ler)i 768 boyutlu vektöre dönüştürür. Semantic search, RAG, benzerlik analizi için kullanılır.
+        **Sunucu:** port 8011
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+            examples:
+              tek_metin:
+                summary: Tek metin embedding
+                value:
+                  model: "nomic-ai/nomic-embed-text-v1.5"
+                  input: "Yazıcı kağıt sıkışması çözümü"
+
+              batch:
+                summary: Batch embedding (çoklu metin)
+                value:
+                  model: "nomic-ai/nomic-embed-text-v1.5"
+                  input:
+                    - "Yazıcı kağıt sıkışması"
+                    - "VPN bağlantı problemi"
+                    - "E-posta şifre sıfırlama"
+                    - "Monitör görüntü yok"
+                  encoding_format: "float"
+
+              base64_format:
+                summary: Base64 encoding formatı
+                value:
+                  model: "nomic-ai/nomic-embed-text-v1.5"
+                  input: "test metni"
+                  encoding_format: "base64"
+
+              tum_parametreler:
+                summary: TÜM parametreler
+                value:
+                  model: "nomic-ai/nomic-embed-text-v1.5"
+                  input: "test metni"
+                  encoding_format: "float"
+                  embed_dtype: "float32"
+                  endianness: "native"
+                  dimensions: null
+                  normalize: true
+                  add_special_tokens: true
+                  truncate_prompt_tokens: null
+                  priority: 0
+                  user: "user-123"
+
+      responses:
+        '200':
+          description: Başarılı yanıt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+              examples:
+                normal:
+                  value:
+                    id: "embd-abc123"
+                    object: "list"
+                    model: "nomic-ai/nomic-embed-text-v1.5"
+                    data:
+                      - index: 0
+                        object: "embedding"
+                        embedding: [0.099, -0.436, 0.795, "...768 boyut"]
+                    usage:
+                      prompt_tokens: 5
+                      total_tokens: 5
+
+  # ─────────────────────────────────────────────
+  #  MODELS
+  # ─────────────────────────────────────────────
+  /v1/models:
+    get:
+      tags: [Models]
+      summary: Yüklü modelleri listele
+      description: |
+        Sunucuda yüklü olan modelleri döndürür.
+        - Port 8010: `Qwen/Qwen3-4B`
+        - Port 8011: `nomic-ai/nomic-embed-text-v1.5`
+      responses:
+        '200':
+          description: Model listesi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+              examples:
+                chat_models:
+                  summary: Chat sunucusu (8010)
+                  value:
+                    object: "list"
+                    data:
+                      - id: "Qwen/Qwen3-4B"
+                        object: "model"
+                        created: 1771266000
+                        owned_by: "vllm"
+
+  # ─────────────────────────────────────────────
+  #  HEALTH
+  # ─────────────────────────────────────────────
+  /health:
+    get:
+      tags: [Health]
+      summary: Sağlık kontrolü
+      description: |
+        vLLM sunucusunun çalışıp çalışmadığını kontrol eder.
+        Her iki port için de aynı endpoint kullanılır.
+      responses:
+        '200':
+          description: Sunucu sağlıklı
+          content:
+            application/json:
+              examples:
+                healthy:
+                  value: {}
+
+  /version:
+    get:
+      tags: [Health]
+      summary: vLLM versiyonu
+      responses:
+        '200':
+          description: Versiyon bilgisi
+          content:
+            application/json:
+              examples:
+                version:
+                  value:
+                    version: "0.15.1"
+
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrikleri
+      description: GPU kullanımı, istek sayıları, latency gibi Prometheus formatında metrikler.
+      responses:
+        '200':
+          description: Prometheus text format
+          content:
+            text/plain:
+              example: |
+                vllm:num_requests_running 0
+                vllm:num_requests_waiting 0
+                vllm:gpu_cache_usage_perc 0.05
+
+  # ─────────────────────────────────────────────
+  #  TOKENIZER
+  # ─────────────────────────────────────────────
+  /tokenize:
+    post:
+      tags: [Tokenizer]
+      summary: Metni tokenize et
+      description: Metni token ID listesine çevirir. Prompt uzunluğu hesaplamak için kullanışlıdır.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenizeRequest'
+            examples:
+              basit:
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  prompt: "Merhaba dünya"
+              chat_format:
+                summary: Chat mesajlarını tokenize et
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  messages:
+                    - role: user
+                      content: "Merhaba"
+                  add_generation_prompt: true
+                  add_special_tokens: false
+      responses:
+        '200':
+          description: Token listesi
+          content:
+            application/json:
+              examples:
+                normal:
+                  value:
+                    tokens: [68727, 101650]
+                    count: 2
+                    max_model_len: 8192
+
+  /detokenize:
+    post:
+      tags: [Tokenizer]
+      summary: Tokenleri metne çevir
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DetokenizeRequest'
+            examples:
+              basit:
+                value:
+                  model: "Qwen/Qwen3-4B"
+                  tokens: [68727, 101650]
+      responses:
+        '200':
+          description: Çözümlenmiş metin
+          content:
+            application/json:
+              examples:
+                normal:
+                  value:
+                    prompt: "Merhaba dünya"
+
+components:
+  schemas:
+    # ─────────────────────────────────────────
+    #  CHAT COMPLETION REQUEST
+    # ─────────────────────────────────────────
+    ChatCompletionRequest:
+      type: object
+      required: [messages]
+      properties:
+        # ── Zorunlu ──
+        messages:
+          type: array
+          description: "Mesaj listesi (system, user, assistant, tool rolleri)"
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+
+        # ── Model ──
+        model:
+          type: string
+          default: "Qwen/Qwen3-4B"
+          description: "Model adı"
+
+        # ── Üretim Kontrolleri ──
+        max_tokens:
+          type: integer
+          nullable: true
+          description: "Maksimum üretilecek token sayısı. null = model limiti"
+          example: 512
+        max_completion_tokens:
+          type: integer
+          nullable: true
+          description: "max_tokens ile aynı (OpenAI uyumluluk aliası)"
+        min_tokens:
+          type: integer
+          default: 0
+          description: "Minimum üretilecek token. Bu sayıya ulaşmadan stop/eos çalışmaz"
+        n:
+          type: integer
+          default: 1
+          description: "Kaç farklı tamamlama üretilecek"
+
+        # ── Sampling Parametreleri ──
+        temperature:
+          type: number
+          nullable: true
+          description: |
+            Rastgelelik kontrolü (0.0-2.0).
+            - Thinking ON: **0.6** önerilir
+            - Thinking OFF: **0.7** önerilir
+            - **0 kullanmayın** (sonsuz tekrar üretir!)
+          example: 0.7
+        top_p:
+          type: number
+          nullable: true
+          description: |
+            Nucleus sampling. Kümülatif olasılık eşiği.
+            - Thinking ON: **0.95**
+            - Thinking OFF: **0.8**
+          example: 0.8
+        top_k:
+          type: integer
+          nullable: true
+          description: "En yüksek olasılıklı K tokenden seçim. Qwen3 için **20** önerilir"
+          example: 20
+        min_p:
+          type: number
+          nullable: true
+          description: "Minimum olasılık eşiği. Qwen3 için **0** önerilir"
+          example: 0
+
+        # ── Penaltiler ──
+        frequency_penalty:
+          type: number
+          default: 0.0
+          description: "Sık tekrarlanan tokenlere ceza (-2.0 ile 2.0). Tekrar azaltmak için 0.5"
+        presence_penalty:
+          type: number
+          default: 0.0
+          description: "Daha önce görülen tokenlere ceza (-2.0 ile 2.0). Tekrar sorununda **1.5** kullanın"
+        repetition_penalty:
+          type: number
+          nullable: true
+          description: "Tekrar cezası çarpanı (1.0 = ceza yok). 1.05 önerilir"
+        length_penalty:
+          type: number
+          default: 1.0
+          description: "Uzunluk cezası (beam search ile). >1.0 daha uzun, <1.0 daha kısa çıktı"
+
+        # ── Stop Kontrolleri ──
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          default: []
+          description: "Üretimi durduracak string(ler)"
+          example: ["\n\n", "###"]
+        stop_token_ids:
+          type: array
+          items:
+            type: integer
+          default: []
+          description: "Üretimi durduracak token ID'leri"
+        include_stop_str_in_output:
+          type: boolean
+          default: false
+          description: "Stop stringi çıktıya dahil edilsin mi"
+        ignore_eos:
+          type: boolean
+          default: false
+          description: "true ise EOS tokeni görmezden gelinir, max_tokens'a kadar üretir"
+
+        # ── Streaming ──
+        stream:
+          type: boolean
+          default: false
+          description: "true ise Server-Sent Events (SSE) formatında parça parça yanıt döner"
+        stream_options:
+          $ref: '#/components/schemas/StreamOptions'
+
+        # ── Tool Calling ──
+        tools:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ToolDefinition'
+          description: "Kullanılabilir tool tanımları"
+        tool_choice:
+          description: |
+            Tool seçim stratejisi:
+            - `"none"`: Tool çağırma
+            - `"auto"`: Model karar verir (varsayılan, tools varsa)
+            - `"required"`: Mutlaka bir tool çağır
+            - `{"type":"function","function":{"name":"..."}}`: Belirli toolu çağır
+          default: "none"
+          oneOf:
+            - type: string
+              enum: [none, auto, required]
+            - $ref: '#/components/schemas/NamedToolChoice'
+        parallel_tool_calls:
+          type: boolean
+          default: true
+          description: "Birden fazla tool'u paralel çağırabilir mi"
+
+        # ── Çıktı Formatı ──
+        response_format:
+          description: |
+            Çıktı formatı:
+            - `{"type": "text"}`: Serbest metin (varsayılan)
+            - `{"type": "json_object"}`: Geçerli JSON çıktı
+            - `{"type": "json_schema", "json_schema": {...}}`: Şemaya uygun JSON
+          oneOf:
+            - $ref: '#/components/schemas/ResponseFormat'
+
+        # ── Qwen3 Thinking Mode ──
+        chat_template_kwargs:
+          type: object
+          nullable: true
+          description: |
+            Chat template'e özel parametreler. Qwen3 thinking mode kontrolü:
+            - `{"enable_thinking": true}` → düşünme açık (varsayılan)
+            - `{"enable_thinking": false}` → düşünme kapalı, direkt yanıt
+          example:
+            enable_thinking: false
+        reasoning_effort:
+          type: string
+          enum: [low, medium, high]
+          nullable: true
+          description: "Düşünme derinliği seviyesi"
+        include_reasoning:
+          type: boolean
+          default: true
+          description: "Thinking içeriği yanıtta gösterilsin mi"
+
+        # ── Logprobs ──
+        logprobs:
+          type: boolean
+          default: false
+          description: "Token olasılıklarını döndür"
+        top_logprobs:
+          type: integer
+          default: 0
+          description: "Her pozisyonda en olası N tokenin logprob'unu döndür (0-20)"
+        prompt_logprobs:
+          type: integer
+          nullable: true
+          description: "Prompt tokenlerinin logprob'larını döndür"
+
+        # ── Gelişmiş ──
+        seed:
+          type: integer
+          nullable: true
+          description: "Tekrarlanabilir sonuçlar için sabit seed"
+          example: 42
+        echo:
+          type: boolean
+          default: false
+          description: "true ise prompt da yanıta dahil edilir"
+        user:
+          type: string
+          nullable: true
+          description: "İstek sahibi kullanıcı ID'si (loglama için)"
+        priority:
+          type: integer
+          default: 0
+          description: "İstek önceliği. Düşük değer = daha önce işlenir. Negatif değerler daha yüksek öncelik"
+        truncate_prompt_tokens:
+          type: integer
+          nullable: true
+          description: "Prompt'u N tokene kırp (sığdırmak için)"
+
+        # ── Template Kontrolleri ──
+        add_generation_prompt:
+          type: boolean
+          default: true
+          description: "Generation prompt'u şablona ekle"
+        continue_final_message:
+          type: boolean
+          default: false
+          description: "Son mesajı devam ettir (assistant mesajı tamamlama)"
+        add_special_tokens:
+          type: boolean
+          default: false
+          description: "BOS gibi özel tokenler eklensin mi"
+        skip_special_tokens:
+          type: boolean
+          default: true
+          description: "Çıktıda özel tokenler atlanır"
+        chat_template:
+          type: string
+          nullable: true
+          description: "Özel Jinja2 chat template (varsayılan model template kullanılır)"
+
+        # ── Logit İşleme ──
+        logit_bias:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: number
+          description: "Token ID -> bias değeri. Belirli tokenlerin olasılığını artır/azalt"
+        allowed_token_ids:
+          type: array
+          nullable: true
+          items:
+            type: integer
+          description: "Sadece bu token ID'lerinden üretim yapılır"
+        bad_words:
+          type: array
+          items:
+            type: string
+          description: "Üretilmemesi gereken kelime/ifadeler"
+
+        # ── Diğer ──
+        use_beam_search:
+          type: boolean
+          default: false
+          description: "Beam search kullan (deneysel)"
+        spaces_between_special_tokens:
+          type: boolean
+          default: true
+          description: "Özel tokenler arasına boşluk ekle"
+        cache_salt:
+          type: string
+          nullable: true
+          description: "Prefix cache'i ayırmak için tuz değeri"
+
+    # ─────────────────────────────────────────
+    #  COMPLETION REQUEST
+    # ─────────────────────────────────────────
+    CompletionRequest:
+      type: object
+      properties:
+        model:
+          type: string
+          default: "Qwen/Qwen3-4B"
+        prompt:
+          description: "Metin veya token ID listesi. Array ile batch destekler"
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        max_tokens:
+          type: integer
+          default: 16
+          description: "Maksimum üretilecek token"
+        temperature:
+          type: number
+          example: 0.7
+        top_p:
+          type: number
+          example: 0.8
+        top_k:
+          type: integer
+          example: 20
+        min_p:
+          type: number
+          example: 0
+        n:
+          type: integer
+          default: 1
+        stream:
+          type: boolean
+          default: false
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        frequency_penalty:
+          type: number
+          default: 0.0
+        presence_penalty:
+          type: number
+          default: 0.0
+        repetition_penalty:
+          type: number
+        seed:
+          type: integer
+        logprobs:
+          type: integer
+          description: "Döndürülecek logprob sayısı"
+        echo:
+          type: boolean
+          default: false
+          description: "Prompt'u da çıktıya dahil et"
+        suffix:
+          type: string
+          nullable: true
+          description: "Tamamlamanın ardına eklenecek metin"
+        skip_special_tokens:
+          type: boolean
+          default: true
+        add_special_tokens:
+          type: boolean
+          default: true
+        ignore_eos:
+          type: boolean
+          default: false
+        min_tokens:
+          type: integer
+          default: 0
+        priority:
+          type: integer
+          default: 0
+        user:
+          type: string
+
+    # ─────────────────────────────────────────
+    #  EMBEDDING REQUEST
+    # ─────────────────────────────────────────
+    EmbeddingRequest:
+      type: object
+      required: [input]
+      properties:
+        model:
+          type: string
+          default: "nomic-ai/nomic-embed-text-v1.5"
+          description: "Embedding model adı"
+        input:
+          description: "Embed edilecek metin(ler). Tek string veya array"
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          example: "Yazıcı kağıt sıkışması çözümü"
+        encoding_format:
+          type: string
+          enum: [float, base64]
+          default: "float"
+          description: |
+            Çıktı formatı:
+            - `float`: JSON array (varsayılan, okunabilir)
+            - `base64`: Base64 encoded binary (daha kompakt)
+        embed_dtype:
+          type: string
+          enum: [float32, float16, bfloat16, uint8, int8, binary, ubinary]
+          default: "float32"
+          description: "Embedding veri tipi. float32 en hassas, int8/binary daha kompakt"
+        endianness:
+          type: string
+          enum: [native, little, big]
+          default: "native"
+          description: "Base64 encoding için byte sırası"
+        dimensions:
+          type: integer
+          nullable: true
+          description: "Çıktı vektör boyutu. null = model varsayılanı (768)"
+        normalize:
+          type: boolean
+          nullable: true
+          description: "Vektörleri normalize et (L2 norm = 1). Cosine similarity için gerekli. Varsayılan: true"
+        add_special_tokens:
+          type: boolean
+          default: true
+          description: "BOS/EOS gibi özel tokenler eklensin mi"
+        truncate_prompt_tokens:
+          type: integer
+          nullable: true
+          description: "Girdiyi N tokene kırp (max_model_len aşarsa)"
+        priority:
+          type: integer
+          default: 0
+          description: "İstek önceliği"
+        user:
+          type: string
+          nullable: true
+          description: "Kullanıcı ID (loglama)"
+
+    # ─────────────────────────────────────────
+    #  SHARED SCHEMAS
+    # ─────────────────────────────────────────
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+          description: |
+            - `system`: Sistem yönergesi
+            - `user`: Kullanıcı mesajı
+            - `assistant`: Model yanıtı
+            - `tool`: Tool çağrı sonucu
+        content:
+          type: string
+          description: "Mesaj içeriği"
+        tool_calls:
+          type: array
+          description: "Assistant rolünde tool çağrıları (model tarafından üretilir)"
+          items:
+            $ref: '#/components/schemas/ToolCall'
+        tool_call_id:
+          type: string
+          description: "Tool rolünde: hangi tool_call'a yanıt olduğu"
+
+    ToolDefinition:
+      type: object
+      required: [type, function]
+      properties:
+        type:
+          type: string
+          const: "function"
+        function:
+          type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: "Fonksiyon adı"
+            description:
+              type: string
+              description: "Fonksiyonun ne yaptığı"
+            parameters:
+              type: object
+              description: "JSON Schema formatında parametre tanımı"
+
+    ToolCall:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Tool çağrı ID'si (yanıt eşleştirme için)"
+        type:
+          type: string
+          const: "function"
+        function:
+          type: object
+          properties:
+            name:
+              type: string
+            arguments:
+              type: string
+              description: "JSON string olarak argümanlar"
+
+    NamedToolChoice:
+      type: object
+      properties:
+        type:
+          type: string
+          const: "function"
+        function:
+          type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+
+    ResponseFormat:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [text, json_object, json_schema]
+        json_schema:
+          type: object
+          description: "json_schema tipi için şema tanımı"
+
+    StreamOptions:
+      type: object
+      properties:
+        include_usage:
+          type: boolean
+          default: false
+          description: "Stream sonunda usage bilgisini gönder"
+
+    TokenizeRequest:
+      type: object
+      properties:
+        model:
+          type: string
+        prompt:
+          type: string
+          description: "Tokenize edilecek metin"
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+          description: "Alternatif: chat mesajlarını tokenize et"
+        add_generation_prompt:
+          type: boolean
+          default: true
+        add_special_tokens:
+          type: boolean
+          default: false
+
+    DetokenizeRequest:
+      type: object
+      required: [tokens]
+      properties:
+        model:
+          type: string
+        tokens:
+          type: array
+          items:
+            type: integer
+          description: "Token ID listesi"
+
+    # ─────────────────────────────────────────
+    #  RESPONSE SCHEMAS
+    # ─────────────────────────────────────────
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "chatcmpl-abc123"
+        object:
+          type: string
+          const: "chat.completion"
+        created:
+          type: integer
+          description: "Unix timestamp"
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: '#/components/schemas/ChatMessage'
+              finish_reason:
+                type: string
+                enum: [stop, length, tool_calls]
+                description: |
+                  - `stop`: Normal tamamlandı
+                  - `length`: max_tokens'a ulaşıldı
+                  - `tool_calls`: Tool çağrısı yapıldı
+        usage:
+          $ref: '#/components/schemas/Usage'
+
+    CompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          const: "text_completion"
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              text:
+                type: string
+              finish_reason:
+                type: string
+                enum: [stop, length]
+        usage:
+          $ref: '#/components/schemas/Usage'
+
+    EmbeddingResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          const: "list"
+        model:
+          type: string
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              object:
+                type: string
+                const: "embedding"
+              embedding:
+                type: array
+                items:
+                  type: number
+                description: "768 boyutlu float vektör"
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+
+    ModelListResponse:
+      type: object
+      properties:
+        object:
+          type: string
+          const: "list"
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              object:
+                type: string
+                const: "model"
+              created:
+                type: integer
+              owned_by:
+                type: string
+
+    Usage:
+      type: object
+      properties:
+        prompt_tokens:
+          type: integer
+          description: "Girdi token sayısı"
+        completion_tokens:
+          type: integer
+          description: "Üretilen token sayısı"
+        total_tokens:
+          type: integer
+          description: "Toplam token sayısı"
