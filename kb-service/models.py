@@ -202,3 +202,36 @@ class DatasetRecordListResponse(BaseModel):
     total: int
     page: int
     limit: int
+
+
+# --- Agent Models ---
+
+class AgentCreate(BaseModel):
+    name: str
+    description: str = ""
+    config: dict
+
+
+class AgentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    config: Optional[dict] = None
+
+
+class AgentResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    config: dict
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentListResponse(BaseModel):
+    data: list[AgentResponse]
+    total: int
+
+
+class AgentRunRequest(BaseModel):
+    variables: dict[str, str] = {}
+    stream: Optional[bool] = None  # None = use agent config default

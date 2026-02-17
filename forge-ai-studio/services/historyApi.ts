@@ -124,6 +124,8 @@ export async function logChatRequest(log: {
   params?: Record<string, any>;
   fullResponse?: string;
   ragConfig?: { enabled: boolean; topK: number; threshold: number; sources: string[]; contextCount: number };
+  agent?: { id: string; name: string };
+  variables?: Record<string, string>;
 }): Promise<void> {
   const fullText = log.fullResponse ?? '';
   const truncated = fullText.length > RESPONSE_TEXT_CAP;
@@ -147,6 +149,8 @@ export async function logChatRequest(log: {
             messages: log.messages,
             params: log.params ?? {},
             ...(log.ragConfig ? { rag: log.ragConfig } : {}),
+            ...(log.agent ? { agent: log.agent } : {}),
+            ...(log.variables ? { variables: log.variables } : {}),
           }
         : undefined,
       responsePayload: log.fullResponse !== undefined

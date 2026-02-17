@@ -3,6 +3,24 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.15.0] - 2026-02-17
+
+### Added
+- Agents v2: direct execution from Agents page with streaming Run modal
+- `POST /api/kb/agents/{id}/run` backend endpoint (vLLM proxy + RAG + history logging)
+- Template variables: `{{varName}}` in prompt templates, auto-detected on save
+- `extractVariables()` utility + `runAgent()` SSE stream client (agentsApi.ts)
+- Agent run modal: variable inputs, streaming markdown output, think tag support, copy/stop controls
+- Agent card: promptTemplate preview + variable badges
+- Playground save modal: prompt template preview + detected variable badges
+- History tracking: agent name + variables in request payload (backend + frontend)
+
+### Changed
+- Agents page: Run button opens execution modal (legacy agents without promptTemplate still navigate to Playground)
+- Sidebar: Agents moved to first nav position (above Playground)
+- `AgentConfig` interface: added `promptTemplate` and `variables` fields
+- `logChatRequest()`: accepts optional `agent` and `variables` params
+
 ## [0.14.0] - 2026-02-17
 
 ### Added

@@ -141,6 +141,22 @@ async def init_db():
                 ON dataset_records (dataset_id, md5(data::text))
             """))
 
+        # Saved agents table (config as JSONB blob)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS saved_agents (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name        VARCHAR(255) NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                config      JSONB NOT NULL,
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+        await conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_agents_name
+            ON saved_agents ((lower(name)))
+        """))
+
         # Seed default settings if table is empty
         result = await conn.execute(text("SELECT COUNT(*) FROM app_settings"))
         count = result.scalar()

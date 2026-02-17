@@ -9,6 +9,7 @@ import History from './pages/History';
 import Settings from './pages/Settings';
 import Datasets from './pages/Datasets';
 import DatasetRecords from './pages/DatasetRecords';
+import Agents from './pages/Agents';
 import { initSettings } from './services/settingsApi';
 
 const Layout = ({ children }: { children?: React.ReactNode }) => (
@@ -53,6 +54,7 @@ const App = () => {
           <Route path="/settings" element={<Settings />} />
           <Route path="/datasets" element={<Datasets />} />
           <Route path="/dataset-records" element={<DatasetRecords />} />
+          <Route path="/agents" element={<Agents />} />
         </Routes>
       </Layout>
     </Router>

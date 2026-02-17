@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Save,
   Share2,
@@ -16,6 +17,7 @@ import {
   CheckCircle2,
   Database,
   Search,
+  X,
 } from 'lucide-react';
 import { fetchVLLMModels, streamChatCompletion, ChatCompletionParams } from '../services/vllm';
 import { logChatRequest } from '../services/historyApi';
@@ -24,8 +26,11 @@ import { parseThinkTags, renderMarkdownToHTML } from '../services/markdown';
 import { executeRAGPipeline, RAGResult } from '../services/rag';
 import { getDocumentCount, getStats } from '../services/kbApi';
 import { fetchEmbedModels } from '../services/vllm';
+import { createAgent, updateAgent, AgentConfig, extractVariables } from '../services/agentsApi';
 
 const Playground = () => {
+  const location = useLocation();
+
   // State
   const [prompt, setPrompt] = useState('Write a short poem about coding in the style of Shakespeare.');
   const [systemPrompt, setSystemPrompt] = useState('You are a helpful AI assistant.');
@@ -68,6 +73,14 @@ const Playground = () => {
   const [ragSources, setRagSources] = useState<string[]>([]);
   const [availableSources, setAvailableSources] = useState<string[]>([]);
 
+  // Save Agent State
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveDescription, setSaveDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null);
+  const [loadedAgentName, setLoadedAgentName] = useState<string | null>(null);
+
   // Timing - use ref to avoid stale closure
   const startTimeRef = useRef<number>(0);
   const [elapsedTime, setElapsedTime] = useState<string>('0ms');
@@ -109,6 +122,96 @@ const Playground = () => {
     const interval = setInterval(fetchKBInfo, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Load agent config from navigation state
+  useEffect(() => {
+    const state = location.state as any;
+    if (state?.agentConfig) {
+      const c = state.agentConfig as AgentConfig;
+      setSystemPrompt(c.systemPrompt ?? 'You are a helpful AI assistant.');
+      if (c.selectedModel) setSelectedModel(c.selectedModel);
+      setStream(c.stream ?? true);
+      setThinking(c.thinking ?? false);
+      setJsonMode(c.jsonMode ?? false);
+      setTemperature(c.temperature ?? 0.7);
+      setTopP(c.topP ?? 0.9);
+      setTopK(c.topK ?? 0);
+      setMaxTokens(c.maxTokens ?? 2048);
+      setPresencePenalty(c.presencePenalty ?? 0);
+      setFrequencyPenalty(c.frequencyPenalty ?? 0);
+      setRepetitionPenalty(c.repetitionPenalty ?? 1.0);
+      setSeed(c.seed ?? '');
+      setStopSequences(c.stopSequences ?? '');
+      setRagEnabled(c.ragEnabled ?? false);
+      setRagTopK(c.ragTopK ?? 3);
+      setRagThreshold(c.ragThreshold ?? 0.3);
+      setRagSources(c.ragSources ?? []);
+      if (c.promptTemplate) setPrompt(c.promptTemplate);
+      if (state.agentId) setLoadedAgentId(state.agentId);
+      if (state.agentName) setLoadedAgentName(state.agentName);
+      // Clear navigation state to prevent reload on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, []);
+
+  const detectedVariables = extractVariables(prompt);
+
+  const collectConfig = (): AgentConfig => ({
+    systemPrompt,
+    selectedModel,
+    stream,
+    thinking,
+    jsonMode,
+    temperature,
+    topP,
+    topK,
+    maxTokens,
+    presencePenalty,
+    frequencyPenalty,
+    repetitionPenalty,
+    seed,
+    stopSequences,
+    ragEnabled,
+    ragTopK,
+    ragThreshold,
+    ragSources,
+    promptTemplate: prompt,
+    variables: detectedVariables.map(name => ({
+      name,
+      label: name.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()),
+      defaultValue: '',
+    })),
+  });
+
+  const handleSavePreset = async () => {
+    if (!saveName.trim() && !loadedAgentId) return;
+    setSaving(true);
+    try {
+      const config = collectConfig();
+      if (loadedAgentId) {
+        await updateAgent(loadedAgentId, {
+          name: saveName.trim() || loadedAgentName || 'Untitled',
+          description: saveDescription,
+          config,
+        });
+        setLoadedAgentName(saveName.trim() || loadedAgentName);
+      } else {
+        const created = await createAgent({
+          name: saveName.trim(),
+          description: saveDescription,
+          config,
+        });
+        setLoadedAgentId(created.id);
+        setLoadedAgentName(created.name);
+      }
+      setShowSaveModal(false);
+    } catch (err) {
+      console.error('Failed to save agent:', err);
+      alert('Failed to save agent. Check if name is unique.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleRun = useCallback(async () => {
     if (!selectedModel) {
@@ -261,11 +364,20 @@ const Playground = () => {
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <span>Workspaces</span>
             <span className="text-slate-600">/</span>
-            <span className="text-white font-medium">Generate Playground</span>
+            <span className="text-white font-medium">
+              {loadedAgentName ? `Agent: ${loadedAgentName}` : 'Generate Playground'}
+            </span>
           </div>
           <div className="flex gap-3">
-            <button className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors border border-slate-700">
-              <Save size={14} /> Save Preset
+            <button
+              onClick={() => {
+                setSaveName(loadedAgentName || '');
+                setSaveDescription('');
+                setShowSaveModal(true);
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors border border-slate-700"
+            >
+              <Save size={14} /> {loadedAgentId ? 'Update Agent' : 'Save Preset'}
             </button>
             <button className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors border border-slate-700">
               <Share2 size={14} /> Share
@@ -764,6 +876,80 @@ const Playground = () => {
           </div>
         </div>
       </div>
+
+      {/* Save Agent Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-semibold text-lg">
+                {loadedAgentId ? 'Update Agent' : 'Save as Agent'}
+              </h3>
+              <button onClick={() => setShowSaveModal(false)} className="text-slate-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Name *</label>
+                <input
+                  type="text"
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  placeholder="e.g. Code Reviewer, Story Writer..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Description (optional)</label>
+                <textarea
+                  value={saveDescription}
+                  onChange={(e) => setSaveDescription(e.target.value)}
+                  placeholder="What does this agent do?"
+                  rows={2}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                />
+              </div>
+              {/* Prompt Template Preview */}
+              {prompt.trim() && (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Prompt Template</label>
+                  <div className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-xs text-slate-400 font-mono max-h-24 overflow-y-auto leading-relaxed">
+                    {prompt.length > 300 ? prompt.slice(0, 300) + '...' : prompt}
+                  </div>
+                  {detectedVariables.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Variables:</span>
+                      {detectedVariables.map(v => (
+                        <span key={v} className="text-[11px] px-2 py-0.5 rounded-full bg-blue-900/30 text-blue-400 border border-blue-900/50 font-mono">
+                          {`{{${v}}}`}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setShowSaveModal(false)}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors border border-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSavePreset}
+                  disabled={saving || !saveName.trim()}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {saving && <Loader2 size={14} className="animate-spin" />}
+                  {loadedAgentId ? 'Update' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

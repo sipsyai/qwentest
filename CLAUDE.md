@@ -5,8 +5,8 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 
 ## Proje Yapisi
 - `forge-ai-studio/` - Ana React uygulamasi (Vite + TypeScript)
-  - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, DatasetRecords, History, Settings
-  - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, datasetsApi.ts, embedUtils.ts, rag.ts, markdown.ts, mockData.ts
+  - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, DatasetRecords, Agents, History, Settings
+  - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, datasetsApi.ts, agentsApi.ts, embedUtils.ts, rag.ts, markdown.ts, mockData.ts
   - `components/` - Sidebar.tsx
 - `kb-service/` - FastAPI + pgvector Knowledge Base backend (main.py, database.py, models.py)
 - `docker-compose.yml` - pgvector PostgreSQL container
@@ -21,7 +21,8 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **datasetsApi.ts**: Datasets + records API client (CRUD, fetch proxy, records save/delete, embed records, search records)
 - **embedUtils.ts**: Shared embedding utilities (batch embed with progress, chunked text processing)
 - **settingsApi.ts**: Settings persistence (in-memory cache + PostgreSQL)
-- **historyApi.ts**: Request history persistence (PostgreSQL), detail view with request/response payloads, 50K response cap
+- **historyApi.ts**: Request history persistence (PostgreSQL), detail view with request/response payloads, 50K response cap, agent/variables tracking
+- **agentsApi.ts**: Agents CRUD client, extractVariables() utility, runAgent() SSE stream client
 - **rag.ts**: RAG pipeline (embed query → pgvector search → context injection, `{{context}}` template variable support)
 - **markdown.ts**: Think tag parser + markdown renderer
 - **mockData.ts**: Test/demo verileri
@@ -33,6 +34,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **Embeddings**: Embedding olusturma + Knowledge Base kaydetme, configurable search params (top_k, similarity_threshold sliders), multi-select source chip filtering for KB semantic search
 - **Datasets**: Generic REST API connector, manual JSON paste (no API needed), JSON drill-down explorer, array→tablo gorunum, save selected, field extraction config (array_path + extract_fields), extract & save all, manual fetch
 - **DatasetRecords**: Kaydedilen dataset kayitlari (/dataset-records), filter, search, tablo gorunumu (otomatik kolon turetme), embed pipeline (tag-based field selection, batch embed with progress, embed status tracking)
+- **Agents**: Saved agent cards with Run/Edit/Delete, direct execution via streaming Run modal (variable inputs, markdown output, think tags, copy/stop), promptTemplate preview + variable badges
 - **History**: Istek gecmisi goruntuleme, expand/collapse detail panel (request payload: messages + params + RAG config, response payload: full text)
 - **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu
 
@@ -71,5 +73,5 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - httpx (async HTTP client, backend fetch proxy)
 
 ## Database
-- 5 tablo: `kb_documents`, `app_settings`, `request_history`, `datasets`, `dataset_records`
+- 6 tablo: `kb_documents`, `app_settings`, `request_history`, `datasets`, `dataset_records`, `saved_agents`
 - Detayli sema: `docs/database/SCHEMA.md`

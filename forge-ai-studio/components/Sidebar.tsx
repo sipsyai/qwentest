@@ -8,7 +8,8 @@ import {
   Settings,
   Cpu,
   User,
-  Sparkles
+  Sparkles,
+  Bot,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -44,6 +45,7 @@ const Sidebar = () => {
 
       {/* Navigation */}
       <nav className="flex-1 py-4 flex flex-col gap-1">
+        <NavItem to="/agents" icon={Bot} label="Agents" />
         <NavItem to="/playground" icon={TerminalSquare} label="Playground" />
         <NavItem to="/models" icon={Box} label="Models" />
         <NavItem to="/embeddings" icon={Cpu} label="Embeddings" />

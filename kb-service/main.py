@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -7,10 +8,11 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy import text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import init_db, get_session
+from database import init_db, get_session, async_session
 from models import (
     DocumentsAddRequest, DocumentResponse, DocumentsListResponse,
     BulkDeleteRequest, BulkDeleteResponse,
@@ -21,6 +23,8 @@ from models import (
     DatasetCreate, DatasetUpdate, DatasetResponse, DatasetListResponse,
     DatasetFetchRequest, DatasetFetchResponse,
     DatasetRecordBulkCreate, DatasetRecordResponse, DatasetRecordListResponse,
+    AgentCreate, AgentUpdate, AgentResponse, AgentListResponse,
+    AgentRunRequest,
 )
 
 
@@ -721,3 +725,454 @@ async def bulk_delete_records(req: BulkDeleteRequest, session: AsyncSession = De
     )
     await session.commit()
     return BulkDeleteResponse(deleted=result.rowcount)
+
+
+# ==================== Agent Endpoints ====================
+
+
+def _row_to_agent_response(row) -> AgentResponse:
+    config = row.config
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except Exception:
+            config = {}
+    return AgentResponse(
+        id=str(row.id), name=row.name, description=row.description,
+        config=config, created_at=row.created_at, updated_at=row.updated_at,
+    )
+
+
+@app.get("/api/kb/agents", response_model=AgentListResponse)
+async def list_agents(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(text(
+        "SELECT id, name, description, config, created_at, updated_at "
+        "FROM saved_agents ORDER BY updated_at DESC"
+    ))
+    rows = result.fetchall()
+    data = [_row_to_agent_response(row) for row in rows]
+    return AgentListResponse(data=data, total=len(data))
+
+
+@app.post("/api/kb/agents", response_model=AgentResponse)
+async def create_agent(req: AgentCreate, session: AsyncSession = Depends(get_session)):
+    agent_id = str(uuid.uuid4())
+    await session.execute(
+        text("""
+            INSERT INTO saved_agents (id, name, description, config)
+            VALUES (:id, :name, :description, CAST(:config AS jsonb))
+        """),
+        {
+            "id": agent_id, "name": req.name,
+            "description": req.description, "config": json.dumps(req.config),
+        }
+    )
+    await session.commit()
+
+    result = await session.execute(
+        text("SELECT id, name, description, config, created_at, updated_at FROM saved_agents WHERE id = :id"),
+        {"id": agent_id}
+    )
+    row = result.fetchone()
+    return _row_to_agent_response(row)
+
+
+@app.get("/api/kb/agents/{agent_id}", response_model=AgentResponse)
+async def get_agent(agent_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("SELECT id, name, description, config, created_at, updated_at FROM saved_agents WHERE id = :id"),
+        {"id": agent_id}
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return _row_to_agent_response(row)
+
+
+@app.put("/api/kb/agents/{agent_id}", response_model=AgentResponse)
+async def update_agent(agent_id: str, req: AgentUpdate, session: AsyncSession = Depends(get_session)):
+    updates = {}
+    params = {"id": agent_id}
+    if req.name is not None:
+        updates["name"] = "name = :name"
+        params["name"] = req.name
+    if req.description is not None:
+        updates["description"] = "description = :description"
+        params["description"] = req.description
+    if req.config is not None:
+        updates["config"] = "config = CAST(:config AS jsonb)"
+        params["config"] = json.dumps(req.config)
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    set_clause = ", ".join(updates.values()) + ", updated_at = NOW()"
+    result = await session.execute(
+        text(f"UPDATE saved_agents SET {set_clause} WHERE id = :id"),
+        params
+    )
+    await session.commit()
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    result = await session.execute(
+        text("SELECT id, name, description, config, created_at, updated_at FROM saved_agents WHERE id = :id"),
+        {"id": agent_id}
+    )
+    row = result.fetchone()
+    return _row_to_agent_response(row)
+
+
+@app.delete("/api/kb/agents/{agent_id}", response_model=MessageResponse)
+async def delete_agent(agent_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("DELETE FROM saved_agents WHERE id = :id"), {"id": agent_id}
+    )
+    await session.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return MessageResponse(message="Agent deleted")
+
+
+# ==================== Agent Run Helpers ====================
+
+VLLM_CHAT_DEFAULT = "http://192.168.1.8:8010/v1"
+VLLM_EMBED_DEFAULT = "http://192.168.1.8:8011/v1"
+
+VARIABLE_PATTERN = re.compile(r'\{\{(\w+)\}\}')
+RESERVED_VARIABLES = {"context"}
+
+
+async def resolve_vllm_url(session: AsyncSession, setting_key: str, fallback_key: str, default: str) -> str:
+    """Resolve a vLLM URL from settings, skipping proxy paths (start with /)."""
+    result = await session.execute(
+        text("SELECT key, value FROM app_settings WHERE key IN (:k1, :k2)"),
+        {"k1": setting_key, "k2": fallback_key}
+    )
+    settings = {row.key: row.value for row in result.fetchall()}
+    primary = settings.get(setting_key, "")
+    fallback = settings.get(fallback_key, "")
+    # Skip proxy paths like /api/chat
+    if primary and not primary.startswith("/"):
+        return primary
+    if fallback and not fallback.startswith("/"):
+        return fallback
+    return default
+
+
+def resolve_template(template: str, variables: dict[str, str]) -> str:
+    """Replace {{var}} placeholders, leaving {{context}} untouched (reserved for RAG)."""
+    def replacer(match):
+        name = match.group(1)
+        if name in RESERVED_VARIABLES:
+            return match.group(0)  # keep as-is
+        return variables.get(name, "")
+    return VARIABLE_PATTERN.sub(replacer, template)
+
+
+# ==================== Agent Run Endpoint ====================
+
+
+@app.post("/api/kb/agents/{agent_id}/run")
+async def run_agent(agent_id: str, req: AgentRunRequest = None, session: AsyncSession = Depends(get_session)):
+    if req is None:
+        req = AgentRunRequest()
+
+    # 1. Load agent
+    result = await session.execute(
+        text("SELECT id, name, description, config FROM saved_agents WHERE id = :id"),
+        {"id": agent_id}
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    config = row.config
+    if isinstance(config, str):
+        config = json.loads(config)
+
+    agent_name = row.name
+
+    # 2. Extract config values
+    system_prompt = config.get("systemPrompt", "")
+    prompt_template = config.get("promptTemplate", "")
+    config_variables = config.get("variables", [])
+    model = config.get("selectedModel", "")
+    use_stream = req.stream if req.stream is not None else config.get("stream", True)
+    thinking = config.get("thinking", False)
+    json_mode = config.get("jsonMode", False)
+    temperature = config.get("temperature", 0.7)
+    top_p = config.get("topP", 0.9)
+    top_k = config.get("topK", 0)
+    max_tokens = config.get("maxTokens", 2048)
+    presence_penalty = config.get("presencePenalty", 0)
+    frequency_penalty = config.get("frequencyPenalty", 0)
+    repetition_penalty = config.get("repetitionPenalty", 1.0)
+    seed_str = config.get("seed", "")
+    stop_sequences = config.get("stopSequences", "")
+    rag_enabled = config.get("ragEnabled", False)
+    rag_top_k = config.get("ragTopK", 3)
+    rag_threshold = config.get("ragThreshold", 0.3)
+    rag_sources = config.get("ragSources", [])
+
+    if not model:
+        raise HTTPException(status_code=400, detail="Agent has no model configured")
+    if not prompt_template:
+        raise HTTPException(status_code=400, detail="Agent has no promptTemplate configured")
+
+    # 3. Merge variables: request overrides > config defaults
+    merged_vars = {}
+    for v in config_variables:
+        name = v.get("name", "")
+        if name:
+            merged_vars[name] = v.get("defaultValue", "")
+    merged_vars.update(req.variables)
+
+    # 4. Resolve templates
+    resolved_prompt = resolve_template(prompt_template, merged_vars)
+    resolved_system = resolve_template(system_prompt, merged_vars)
+
+    # 5. Build messages
+    messages = []
+    rag_context_count = 0
+
+    if rag_enabled:
+        try:
+            embed_url = await resolve_vllm_url(session, "forge_embed_url", "forge_embed_fallback_url", VLLM_EMBED_DEFAULT)
+
+            # Get embed model name
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                model_resp = await client.get(f"{embed_url}/models")
+                model_data = model_resp.json()
+                embed_model = model_data["data"][0]["id"] if model_data.get("data") else None
+
+            if embed_model:
+                # Embed the resolved prompt
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    embed_resp = await client.post(
+                        f"{embed_url}/embeddings",
+                        json={"model": embed_model, "input": resolved_prompt}
+                    )
+                    embed_data = embed_resp.json()
+                    query_embedding = embed_data["data"][0]["embedding"]
+
+                # Search pgvector
+                embedding_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
+                search_params = {
+                    "embedding": embedding_str,
+                    "threshold": rag_threshold,
+                    "top_k": rag_top_k,
+                }
+                conditions = []
+                if rag_sources:
+                    src_placeholders = ", ".join(f":src_{i}" for i in range(len(rag_sources)))
+                    conditions.append(f"source_label IN ({src_placeholders})")
+                    for i, src in enumerate(rag_sources):
+                        search_params[f"src_{i}"] = src
+
+                where_clause = ""
+                if conditions:
+                    where_clause = "AND " + " AND ".join(conditions)
+
+                search_query = f"""
+                    SELECT text, 1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
+                    FROM kb_documents
+                    WHERE 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
+                    {where_clause}
+                    ORDER BY similarity DESC
+                    LIMIT :top_k
+                """
+                search_result = await session.execute(text(search_query), search_params)
+                search_rows = search_result.fetchall()
+
+                if search_rows:
+                    context_text = "\n\n---\n\n".join(r.text for r in search_rows)
+                    rag_context_count = len(search_rows)
+
+                    if "{{context}}" in resolved_prompt:
+                        resolved_prompt = resolved_prompt.replace("{{context}}", context_text)
+                    else:
+                        # Inject into system prompt
+                        resolved_system = resolved_system + f"\n\n[Retrieved Context]\n{context_text}"
+        except Exception as e:
+            # RAG failed, continue without it
+            pass
+
+    if resolved_system.strip():
+        messages.append({"role": "system", "content": resolved_system})
+    messages.append({"role": "user", "content": resolved_prompt})
+
+    # 6. Build vLLM request body
+    body = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "top_p": top_p,
+        "max_tokens": max_tokens,
+        "stream": use_stream,
+    }
+    if top_k > 0:
+        body["top_k"] = top_k
+    if presence_penalty != 0:
+        body["presence_penalty"] = presence_penalty
+    if frequency_penalty != 0:
+        body["frequency_penalty"] = frequency_penalty
+    if repetition_penalty != 1.0:
+        body["repetition_penalty"] = repetition_penalty
+    if seed_str:
+        try:
+            body["seed"] = int(seed_str)
+        except ValueError:
+            pass
+    if stop_sequences:
+        stops = [s.strip() for s in stop_sequences.split(",") if s.strip()]
+        if stops:
+            body["stop"] = stops
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    body["chat_template_kwargs"] = {"enable_thinking": thinking}
+
+    chat_url = await resolve_vllm_url(session, "forge_chat_url", "forge_chat_fallback_url", VLLM_CHAT_DEFAULT)
+    start_time = time.time()
+
+    # 7. Execute
+    if use_stream:
+        async def stream_generator():
+            full_text = ""
+            status_code = 200
+            try:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{chat_url}/chat/completions",
+                        json=body,
+                        headers={"Content-Type": "application/json"},
+                    ) as resp:
+                        status_code = resp.status_code
+                        if resp.status_code != 200:
+                            error_body = await resp.aread()
+                            yield f"data: {json.dumps({'error': error_body.decode()})}\n\n"
+                            return
+                        async for line in resp.aiter_lines():
+                            if line.startswith("data: "):
+                                yield line + "\n\n"
+                                payload = line[6:]
+                                if payload.strip() == "[DONE]":
+                                    continue
+                                try:
+                                    chunk = json.loads(payload)
+                                    delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    if delta:
+                                        full_text += delta
+                                except Exception:
+                                    pass
+            except httpx.RequestError as e:
+                status_code = 502
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            finally:
+                # Log to history in a separate session
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                try:
+                    async with async_session() as hist_session:
+                        hist_id = f"req_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
+                        preview = full_text[:150] if full_text else "Error"
+                        duration = f"{elapsed_ms}ms" if elapsed_ms < 1000 else f"{elapsed_ms/1000:.1f}s"
+                        token_est = (len(resolved_prompt) + len(full_text)) // 4
+
+                        req_payload = {
+                            "messages": messages,
+                            "params": {k: v for k, v in body.items() if k != "messages"},
+                            "agent": {"id": agent_id, "name": agent_name},
+                            "variables": merged_vars,
+                        }
+                        if rag_enabled:
+                            req_payload["rag"] = {
+                                "enabled": True, "topK": rag_top_k,
+                                "threshold": rag_threshold, "sources": rag_sources,
+                                "contextCount": rag_context_count,
+                            }
+
+                        res_payload = {"text": full_text[:50000], "truncated": len(full_text) > 50000}
+
+                        await hist_session.execute(
+                            text("""
+                                INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload)
+                                VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb))
+                                ON CONFLICT (id) DO NOTHING
+                            """),
+                            {
+                                "id": hist_id, "method": "POST", "endpoint": "/v1/chat/completions",
+                                "model": model, "timestamp": time.strftime("%m/%d/%Y, %I:%M:%S %p"),
+                                "duration": duration, "tokens": token_est,
+                                "status": status_code, "status_text": "OK" if status_code == 200 else "Error",
+                                "preview": preview,
+                                "request_payload": json.dumps(req_payload),
+                                "response_payload": json.dumps(res_payload),
+                            }
+                        )
+                        await hist_session.commit()
+                except Exception:
+                    pass
+
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+    else:
+        # Non-streaming
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                resp = await client.post(
+                    f"{chat_url}/chat/completions",
+                    json=body,
+                    headers={"Content-Type": "application/json"},
+                )
+            elapsed_ms = int((time.time() - start_time) * 1000)
+
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"vLLM returned {resp.status_code}: {resp.text}")
+
+            data = resp.json()
+            full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            # Log to history
+            hist_id = f"req_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
+            preview = full_text[:150]
+            duration = f"{elapsed_ms}ms" if elapsed_ms < 1000 else f"{elapsed_ms/1000:.1f}s"
+            token_est = (len(resolved_prompt) + len(full_text)) // 4
+
+            req_payload = {
+                "messages": messages,
+                "params": {k: v for k, v in body.items() if k != "messages"},
+                "agent": {"id": agent_id, "name": agent_name},
+                "variables": merged_vars,
+            }
+            if rag_enabled:
+                req_payload["rag"] = {
+                    "enabled": True, "topK": rag_top_k,
+                    "threshold": rag_threshold, "sources": rag_sources,
+                    "contextCount": rag_context_count,
+                }
+            res_payload = {"text": full_text[:50000], "truncated": len(full_text) > 50000}
+
+            await session.execute(
+                text("""
+                    INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload)
+                    VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb))
+                    ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": hist_id, "method": "POST", "endpoint": "/v1/chat/completions",
+                    "model": model, "timestamp": time.strftime("%m/%d/%Y, %I:%M:%S %p"),
+                    "duration": duration, "tokens": token_est,
+                    "status": resp.status_code, "status_text": "OK",
+                    "preview": preview,
+                    "request_payload": json.dumps(req_payload),
+                    "response_payload": json.dumps(res_payload),
+                }
+            )
+            await session.commit()
+
+            return data
+
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"Cannot reach vLLM: {str(e)}")
