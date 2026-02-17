@@ -25,6 +25,7 @@ from models import (
     DatasetRecordBulkCreate, DatasetRecordResponse, DatasetRecordListResponse,
     AgentCreate, AgentUpdate, AgentResponse, AgentListResponse,
     AgentRunRequest, AgentToolInfo, AgentToolsResponse,
+    WorkflowCreate, WorkflowUpdate, WorkflowResponse, WorkflowListResponse,
 )
 from agent_executor import AgentExecutor
 from tools import get_available_tool_names, TOOL_REGISTRY
@@ -835,6 +836,241 @@ async def delete_agent(agent_id: str, session: AsyncSession = Depends(get_sessio
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Agent not found")
     return MessageResponse(message="Agent deleted")
+
+
+# ==================== Workflow Endpoints ====================
+
+
+def _row_to_workflow_response(row) -> WorkflowResponse:
+    steps = row.steps
+    if isinstance(steps, str):
+        try:
+            steps = json.loads(steps)
+        except Exception:
+            steps = []
+    return WorkflowResponse(
+        id=str(row.id), name=row.name, description=row.description,
+        steps=steps, created_at=row.created_at, updated_at=row.updated_at,
+    )
+
+
+@app.get("/api/kb/workflows", response_model=WorkflowListResponse)
+async def list_workflows(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(text(
+        "SELECT id, name, description, steps, created_at, updated_at "
+        "FROM workflows ORDER BY updated_at DESC"
+    ))
+    rows = result.fetchall()
+    data = [_row_to_workflow_response(row) for row in rows]
+    return WorkflowListResponse(data=data, total=len(data))
+
+
+@app.post("/api/kb/workflows", response_model=WorkflowResponse)
+async def create_workflow(req: WorkflowCreate, session: AsyncSession = Depends(get_session)):
+    wf_id = str(uuid.uuid4())
+    await session.execute(
+        text("""
+            INSERT INTO workflows (id, name, description, steps)
+            VALUES (:id, :name, :description, CAST(:steps AS jsonb))
+        """),
+        {"id": wf_id, "name": req.name, "description": req.description, "steps": json.dumps(req.steps)}
+    )
+    await session.commit()
+    result = await session.execute(
+        text("SELECT id, name, description, steps, created_at, updated_at FROM workflows WHERE id = :id"),
+        {"id": wf_id}
+    )
+    return _row_to_workflow_response(result.fetchone())
+
+
+@app.get("/api/kb/workflows/{wf_id}", response_model=WorkflowResponse)
+async def get_workflow(wf_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("SELECT id, name, description, steps, created_at, updated_at FROM workflows WHERE id = :id"),
+        {"id": wf_id}
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return _row_to_workflow_response(row)
+
+
+@app.put("/api/kb/workflows/{wf_id}", response_model=WorkflowResponse)
+async def update_workflow(wf_id: str, req: WorkflowUpdate, session: AsyncSession = Depends(get_session)):
+    updates = {}
+    params = {"id": wf_id}
+    if req.name is not None:
+        updates["name"] = "name = :name"
+        params["name"] = req.name
+    if req.description is not None:
+        updates["description"] = "description = :description"
+        params["description"] = req.description
+    if req.steps is not None:
+        updates["steps"] = "steps = CAST(:steps AS jsonb)"
+        params["steps"] = json.dumps(req.steps)
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    set_clause = ", ".join(updates.values()) + ", updated_at = NOW()"
+    result = await session.execute(
+        text(f"UPDATE workflows SET {set_clause} WHERE id = :id"), params
+    )
+    await session.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    result = await session.execute(
+        text("SELECT id, name, description, steps, created_at, updated_at FROM workflows WHERE id = :id"),
+        {"id": wf_id}
+    )
+    return _row_to_workflow_response(result.fetchone())
+
+
+@app.delete("/api/kb/workflows/{wf_id}", response_model=MessageResponse)
+async def delete_workflow(wf_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("DELETE FROM workflows WHERE id = :id"), {"id": wf_id}
+    )
+    await session.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return MessageResponse(message="Workflow deleted")
+
+
+@app.post("/api/kb/workflows/{wf_id}/run")
+async def run_workflow(wf_id: str, session: AsyncSession = Depends(get_session)):
+    """Run a workflow: execute steps sequentially, piping outputs as variables."""
+    # Load workflow
+    result = await session.execute(
+        text("SELECT id, name, steps FROM workflows WHERE id = :id"),
+        {"id": wf_id}
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    steps = row.steps
+    if isinstance(steps, str):
+        steps = json.loads(steps)
+
+    if not steps:
+        raise HTTPException(status_code=400, detail="Workflow has no steps")
+
+    # Resolve URLs once
+    chat_url = await resolve_vllm_url(session, "forge_chat_url", "forge_chat_fallback_url", VLLM_CHAT_DEFAULT)
+    embed_url = ""
+    embed_model = ""
+    try:
+        embed_url = await resolve_vllm_url(session, "forge_embed_url", "forge_embed_fallback_url", VLLM_EMBED_DEFAULT)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            model_resp = await client.get(f"{embed_url}/models")
+            model_data = model_resp.json()
+            embed_model = model_data["data"][0]["id"] if model_data.get("data") else ""
+    except Exception:
+        pass
+
+    async def workflow_generator():
+        prev_output = ""
+        step_outputs = {}  # step_id -> output
+
+        for idx, step in enumerate(steps):
+            step_id = step.get("id", f"step_{idx}")
+            agent_id = step.get("agentId", "")
+            variable_mappings = step.get("variableMappings", {})
+
+            if not agent_id:
+                yield f"event: step_error\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'error': 'No agent configured'})}\n\n"
+                continue
+
+            # Load agent
+            agent_result = await session.execute(
+                text("SELECT id, name, config FROM saved_agents WHERE id = :id"),
+                {"id": agent_id}
+            )
+            agent_row = agent_result.fetchone()
+            if not agent_row:
+                yield f"event: step_error\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'error': f'Agent {agent_id} not found'})}\n\n"
+                continue
+
+            config = agent_row.config
+            if isinstance(config, str):
+                config = json.loads(config)
+
+            # Resolve variables: apply mappings
+            resolved_vars = {}
+            for var_name, mapping in variable_mappings.items():
+                if mapping == "{{prev_output}}":
+                    resolved_vars[var_name] = prev_output
+                elif mapping.startswith("{{step:") and mapping.endswith("}}"):
+                    # {{step:step_id}} -> output of a specific step
+                    ref_id = mapping[7:-2]
+                    resolved_vars[var_name] = step_outputs.get(ref_id, "")
+                else:
+                    resolved_vars[var_name] = mapping  # literal value
+
+            # Emit step start
+            yield f"event: step_start\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'agent_name': agent_row.name, 'agent_id': agent_id})}\n\n"
+
+            # Create executor
+            executor = AgentExecutor(
+                config=config,
+                agent_id=str(agent_row.id),
+                agent_name=agent_row.name,
+                session=session,
+                chat_url=chat_url,
+                embed_url=embed_url,
+                embed_model=embed_model,
+            )
+
+            # Run and collect output
+            step_text = ""
+            try:
+                async for event in executor.execute(resolved_vars, stream=True):
+                    # Forward sub-events with step context
+                    if event.startswith("event: "):
+                        # Re-emit agentic events with step prefix
+                        lines = event.strip().split("\n")
+                        event_type = lines[0].replace("event: ", "")
+                        data_line = lines[1] if len(lines) > 1 else ""
+                        if data_line.startswith("data: "):
+                            try:
+                                payload = json.loads(data_line[6:])
+                                payload["step_id"] = step_id
+                                payload["step_index"] = idx
+                                yield f"event: step_{event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                            except Exception:
+                                yield event
+                        else:
+                            yield event
+                    elif event.startswith("data: "):
+                        payload_str = event[6:].strip().split("\n")[0]
+                        if payload_str == "[DONE]":
+                            continue
+                        try:
+                            chunk = json.loads(payload_str)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            if delta:
+                                step_text += delta
+                                yield f"event: step_stream\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'content': delta}, ensure_ascii=False)}\n\n"
+                        except Exception:
+                            pass
+            except Exception as e:
+                yield f"event: step_error\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'error': str(e)})}\n\n"
+                continue
+
+            # Use executor's collected text if available
+            final_text = executor.full_text or step_text
+            prev_output = final_text
+            step_outputs[step_id] = final_text
+
+            yield f"event: step_done\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'output_preview': final_text[:500], 'output_length': len(final_text)})}\n\n"
+
+        # All steps done
+        yield f"event: workflow_done\ndata: {json.dumps({'total_steps': len(steps), 'step_outputs': {k: v[:200] for k, v in step_outputs.items()}})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(workflow_generator(), media_type="text/event-stream")
 
 
 # ==================== Agent Run Helpers ====================

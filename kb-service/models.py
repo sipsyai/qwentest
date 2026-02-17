@@ -244,3 +244,31 @@ class AgentToolInfo(BaseModel):
 
 class AgentToolsResponse(BaseModel):
     tools: list[AgentToolInfo]
+
+
+# --- Workflow Models ---
+
+class WorkflowCreate(BaseModel):
+    name: str
+    description: str = ""
+    steps: list = []
+
+
+class WorkflowUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    steps: Optional[list] = None
+
+
+class WorkflowResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    steps: list
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowListResponse(BaseModel):
+    data: list[WorkflowResponse]
+    total: int

@@ -11,6 +11,7 @@ import {
   Sparkles,
   Bot,
   Zap,
+  GitBranch,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -48,6 +49,7 @@ const Sidebar = () => {
       <nav className="flex-1 py-4 flex flex-col gap-1">
         <NavItem to="/agents" icon={Bot} label="Agents" />
         <NavItem to="/agentic" icon={Zap} label="Agentic" />
+        <NavItem to="/workflows" icon={GitBranch} label="Workflows" />
         <NavItem to="/playground" icon={TerminalSquare} label="Playground" />
         <NavItem to="/models" icon={Box} label="Models" />
         <NavItem to="/embeddings" icon={Cpu} label="Embeddings" />

@@ -157,6 +157,18 @@ async def init_db():
             ON saved_agents ((lower(name)))
         """))
 
+        # Workflows table (pipeline of agents)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS workflows (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name        VARCHAR(255) NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                steps       JSONB NOT NULL DEFAULT '[]',
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+
         # Seed default settings if table is empty
         result = await conn.execute(text("SELECT COUNT(*) FROM app_settings"))
         count = result.scalar()
