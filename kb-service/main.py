@@ -17,7 +17,7 @@ from models import (
     SearchRequest, SearchResponse, SearchResultItem,
     StatsResponse, MessageResponse,
     SettingsResponse, SettingsUpdateRequest,
-    HistoryItemInput, HistoryItemResponse, HistoryListResponse,
+    HistoryItemInput, HistoryItemResponse, HistoryItemDetailResponse, HistoryListResponse,
     DatasetCreate, DatasetUpdate, DatasetResponse, DatasetListResponse,
     DatasetFetchRequest, DatasetFetchResponse,
     DatasetRecordBulkCreate, DatasetRecordResponse, DatasetRecordListResponse,
@@ -311,8 +311,8 @@ async def get_history(
 async def add_history_item(item: HistoryItemInput, session: AsyncSession = Depends(get_session)):
     await session.execute(
         text("""
-            INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview)
-            VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview)
+            INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload)
+            VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb))
             ON CONFLICT (id) DO NOTHING
         """),
         {
@@ -320,6 +320,8 @@ async def add_history_item(item: HistoryItemInput, session: AsyncSession = Depen
             "model": item.model, "timestamp": item.timestamp, "duration": item.duration,
             "tokens": item.tokens, "status": item.status, "status_text": item.status_text,
             "preview": item.preview,
+            "request_payload": json.dumps(item.request_payload) if item.request_payload else None,
+            "response_payload": json.dumps(item.response_payload) if item.response_payload else None,
         }
     )
     await session.commit()
@@ -332,8 +334,8 @@ async def bulk_add_history(items: list[HistoryItemInput], session: AsyncSession 
     for item in items:
         result = await session.execute(
             text("""
-                INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview)
-                VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview)
+                INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload)
+                VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb))
                 ON CONFLICT (id) DO NOTHING
             """),
             {
@@ -341,11 +343,53 @@ async def bulk_add_history(items: list[HistoryItemInput], session: AsyncSession 
                 "model": item.model, "timestamp": item.timestamp, "duration": item.duration,
                 "tokens": item.tokens, "status": item.status, "status_text": item.status_text,
                 "preview": item.preview,
+                "request_payload": json.dumps(item.request_payload) if item.request_payload else None,
+                "response_payload": json.dumps(item.response_payload) if item.response_payload else None,
             }
         )
         inserted += result.rowcount
     await session.commit()
     return MessageResponse(message=f"Bulk inserted {inserted} history items", count=inserted)
+
+
+@app.get("/api/kb/history/{item_id}", response_model=HistoryItemDetailResponse)
+async def get_history_item(item_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("""
+            SELECT id, method, endpoint, model, timestamp, duration,
+                   tokens, status, status_text, preview, created_at,
+                   request_payload, response_payload
+            FROM request_history
+            WHERE id = :id
+        """),
+        {"id": item_id}
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="History item not found")
+
+    req_payload = row.request_payload
+    if isinstance(req_payload, str):
+        try:
+            req_payload = json.loads(req_payload)
+        except Exception:
+            req_payload = None
+
+    res_payload = row.response_payload
+    if isinstance(res_payload, str):
+        try:
+            res_payload = json.loads(res_payload)
+        except Exception:
+            res_payload = None
+
+    return HistoryItemDetailResponse(
+        id=row.id, method=row.method, endpoint=row.endpoint,
+        model=row.model, timestamp=row.timestamp, duration=row.duration,
+        tokens=row.tokens, status=row.status, status_text=row.status_text,
+        preview=row.preview, created_at=row.created_at,
+        request_payload=req_payload,
+        response_payload=res_payload,
+    )
 
 
 @app.delete("/api/kb/history/{item_id}", response_model=MessageResponse)

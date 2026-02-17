@@ -21,7 +21,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **datasetsApi.ts**: Datasets + records API client (CRUD, fetch proxy, records save/delete, embed records, search records)
 - **embedUtils.ts**: Shared embedding utilities (batch embed with progress, chunked text processing)
 - **settingsApi.ts**: Settings persistence (in-memory cache + PostgreSQL)
-- **historyApi.ts**: Request history persistence (PostgreSQL)
+- **historyApi.ts**: Request history persistence (PostgreSQL), detail view with request/response payloads, 50K response cap
 - **rag.ts**: RAG pipeline (embed query → pgvector search → context injection, `{{context}}` template variable support)
 - **markdown.ts**: Think tag parser + markdown renderer
 - **mockData.ts**: Test/demo verileri
@@ -33,7 +33,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **Embeddings**: Embedding olusturma + Knowledge Base kaydetme, configurable search params (top_k, similarity_threshold sliders)
 - **Datasets**: Generic REST API connector, manual JSON paste (no API needed), JSON drill-down explorer, array→tablo gorunum, save selected, field extraction config (array_path + extract_fields), extract & save all, manual fetch
 - **DatasetRecords**: Kaydedilen dataset kayitlari (/dataset-records), filter, search, tablo gorunumu (otomatik kolon turetme), embed pipeline (tag-based field selection, batch embed with progress, embed status tracking)
-- **History**: Istek gecmisi goruntuleme
+- **History**: Istek gecmisi goruntuleme, expand/collapse detail panel (request payload: messages + params + RAG config, response payload: full text)
 - **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu
 
 ## Dev Ortami

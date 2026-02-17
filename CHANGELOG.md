@@ -3,6 +3,24 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.13.0] - 2026-02-17
+
+### Added
+- History Detail View: expand/collapse panel showing full request & response payloads
+- `request_payload` (JSONB) and `response_payload` (JSONB) columns on `request_history` table
+- `GET /api/kb/history/{id}` endpoint: fetch single history item with payload data
+- `HistoryItemDetail` TypeScript interface + `HistoryItemDetailResponse` Pydantic model
+- `getHistoryItem(id)` function in historyApi.ts
+- History detail panel: messages list with role badges, parameters, RAG config, full response text
+- Response text cap: 50K character limit with truncation indicator
+
+### Changed
+- `logChatRequest()` and `logEmbeddingRequest()`: positional args → single object param, now capture full payloads
+- Playground.tsx: sends messages, params, fullResponse, ragConfig to history logger
+- Embeddings.tsx: sends inputs, dimensions, totalVectors to history logger
+- `addHistoryItem()`: accepts optional `requestPayload` / `responsePayload`
+- Backend POST/bulk history endpoints: insert payload columns with JSONB cast
+
 ## [0.12.0] - 2026-02-17
 
 ### Added

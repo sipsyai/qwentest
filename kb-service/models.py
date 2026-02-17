@@ -92,6 +92,8 @@ class HistoryItemInput(BaseModel):
     status: int
     status_text: str = ""
     preview: str = ""
+    request_payload: Optional[dict] = None
+    response_payload: Optional[dict] = None
 
 
 class HistoryItemResponse(BaseModel):
@@ -106,6 +108,11 @@ class HistoryItemResponse(BaseModel):
     status_text: str
     preview: str
     created_at: datetime
+
+
+class HistoryItemDetailResponse(HistoryItemResponse):
+    request_payload: Optional[dict] = None
+    response_payload: Optional[dict] = None
 
 
 class HistoryListResponse(BaseModel):

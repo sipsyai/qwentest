@@ -71,6 +71,14 @@ async def init_db():
             ON request_history (created_at DESC)
         """))
 
+        # Add payload columns to request_history (migration)
+        await conn.execute(text("""
+            ALTER TABLE request_history ADD COLUMN IF NOT EXISTS request_payload JSONB DEFAULT NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE request_history ADD COLUMN IF NOT EXISTS response_payload JSONB DEFAULT NULL
+        """))
+
         # Datasets table
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS datasets (

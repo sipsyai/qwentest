@@ -26,6 +26,18 @@ export interface HistoryItem {
   preview: string;
 }
 
+export interface HistoryItemDetail extends HistoryItem {
+  requestPayload: {
+    messages: { role: string; content: string }[];
+    params: Record<string, any>;
+    rag?: { enabled: boolean; topK: number; threshold: number; sources: string[]; contextCount: number };
+  } | null;
+  responsePayload: {
+    text: string;
+    truncated: boolean;
+  } | null;
+}
+
 export interface EmbeddingSession {
   id: string;
   model: string;

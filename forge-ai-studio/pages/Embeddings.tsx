@@ -147,26 +147,29 @@ Machine learning models require clean datasets.`);
         totalVectors: response.data.length,
       });
 
-      logEmbeddingRequest(
-        selectedModel,
-        lines.length,
-        elapsed,
-        200,
-        'OK',
-        response.usage?.total_tokens || 0
-      );
+      logEmbeddingRequest({
+        model: selectedModel,
+        inputCount: lines.length,
+        durationMs: elapsed,
+        status: 200,
+        statusText: 'OK',
+        tokenCount: response.usage?.total_tokens || 0,
+        inputs: lines,
+        dimensions: response.data[0]?.embedding?.length || 0,
+        totalVectors: response.data.length,
+      });
     } catch (err: any) {
       const elapsed = Date.now() - startTime;
       setError(err.message || 'Failed to generate embeddings');
 
-      logEmbeddingRequest(
-        selectedModel,
-        lines.length,
-        elapsed,
-        500,
-        'Error',
-        0
-      );
+      logEmbeddingRequest({
+        model: selectedModel,
+        inputCount: lines.length,
+        durationMs: elapsed,
+        status: 500,
+        statusText: 'Error',
+        tokenCount: 0,
+      });
     } finally {
       setIsGenerating(false);
     }

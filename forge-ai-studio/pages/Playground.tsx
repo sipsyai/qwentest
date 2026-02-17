@@ -191,15 +191,19 @@ const Playground = () => {
         abortControllerRef.current = null;
 
         // Log to history
-        logChatRequest(
-          selectedModel,
-          prompt.slice(0, 100),
-          fullOutput.slice(0, 150),
-          elapsed,
-          200,
-          'OK',
-          Math.ceil((prompt.length + fullOutput.length) / 4)
-        );
+        logChatRequest({
+          model: selectedModel,
+          promptPreview: prompt.slice(0, 100),
+          responsePreview: fullOutput.slice(0, 150),
+          durationMs: elapsed,
+          status: 200,
+          statusText: 'OK',
+          tokenEstimate: Math.ceil((prompt.length + fullOutput.length) / 4),
+          messages,
+          params,
+          fullResponse: fullOutput,
+          ragConfig: ragEnabled ? { enabled: true, topK: ragTopK, threshold: ragThreshold, sources: ragSources, contextCount: ragContext.length } : undefined,
+        });
       },
       (err) => {
         const elapsed = Date.now() - startTimeRef.current;
@@ -207,15 +211,18 @@ const Playground = () => {
         setIsGenerating(false);
         abortControllerRef.current = null;
 
-        logChatRequest(
-          selectedModel,
-          prompt.slice(0, 100),
-          err.message || 'Error',
-          elapsed,
-          500,
-          'Error',
-          0
-        );
+        logChatRequest({
+          model: selectedModel,
+          promptPreview: prompt.slice(0, 100),
+          responsePreview: err.message || 'Error',
+          durationMs: elapsed,
+          status: 500,
+          statusText: 'Error',
+          tokenEstimate: 0,
+          messages,
+          params,
+          fullResponse: err.message || 'Error',
+        });
       },
       controller.signal
     );

@@ -65,6 +65,8 @@ Playground ve Embeddings sayfalarindan yapilan tum API isteklerini loglar.
 | `status` | INTEGER | NOT NULL | HTTP status kodu: 200, 500 vb. |
 | `status_text` | VARCHAR(100) | NOT NULL, DEFAULT '' | Status aciklamasi: `OK`, `Error` |
 | `preview` | TEXT | NOT NULL, DEFAULT '' | Yanit onizlemesi (ilk 150 karakter) |
+| `request_payload` | JSONB | DEFAULT NULL | Tam request verisi (messages, params, RAG config) |
+| `response_payload` | JSONB | DEFAULT NULL | Tam response verisi (text, truncated flag) |
 | `created_at` | TIMESTAMPTZ | DEFAULT NOW() | DB'ye yazilma zamani |
 
 **Indexler:**
@@ -127,10 +129,10 @@ Dataset'lerden secilip kaydedilen JSON kayitlari.
                                                   | status           |
 +------------------+     +--------------------+   | status_text      |
 |    datasets      |     | dataset_records    |   | preview          |
-+------------------+     +--------------------+   | created_at       |
-| id (SERIAL) PK   |←1:N| id (SERIAL) PK    |   +------------------+
-| name             |     | dataset_id (FK)    |
-| url              |     | data (JSONB)       |
++------------------+     +--------------------+   | request_payload  |
+| id (SERIAL) PK   |←1:N| id (SERIAL) PK    |   | response_payload |
+| name             |     | dataset_id (FK)    |   | created_at       |
+| url              |     | data (JSONB)       |   +------------------+
 | method           |     | json_path          |
 | token            |     | label              |
 | headers (JSONB)  |     | created_at         |
@@ -169,6 +171,7 @@ Dataset'lerden secilip kaydedilen JSON kayitlari.
 | request_history | `/api/kb/history` | POST | Tek history item ekle |
 | request_history | `/api/kb/history` | DELETE | Tum history'yi sil |
 | request_history | `/api/kb/history/bulk` | POST | Bulk insert (migration) |
+| request_history | `/api/kb/history/{id}` | GET | Tek history item detay (payloads dahil) |
 | request_history | `/api/kb/history/{id}` | DELETE | Tek history item sil |
 | datasets | `/api/kb/datasets` | GET | Tum dataset'leri listele |
 | datasets | `/api/kb/datasets` | POST | Yeni dataset olustur |
