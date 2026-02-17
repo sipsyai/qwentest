@@ -319,16 +319,16 @@ class AgentExecutor:
         resolved_prompt, resolved_system, rag_count = await self._resolve_rag(resolved_prompt, resolved_system)
 
         # Build messages
-        messages = []
+        self.messages = []
         if resolved_system.strip():
-            messages.append({"role": "system", "content": resolved_system})
-        messages.append({"role": "user", "content": resolved_prompt})
+            self.messages.append({"role": "system", "content": resolved_system})
+        self.messages.append({"role": "user", "content": resolved_prompt})
 
         self.start_time = time.time()
 
         if stream:
             body = self._build_base_body(stream=True)
-            body["messages"] = messages
+            body["messages"] = self.messages
 
             try:
                 async with httpx.AsyncClient(timeout=300.0) as client:
@@ -357,7 +357,7 @@ class AgentExecutor:
                 yield sse_data({"error": str(e)})
         else:
             try:
-                data = await self._call_llm(messages, stream=False)
+                data = await self._call_llm(self.messages, stream=False)
                 self.full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                 yield sse_data(data)
             except Exception as e:

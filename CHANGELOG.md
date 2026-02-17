@@ -3,6 +3,11 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.15.1] - 2026-02-17
+
+### Fixed
+- Agent simple mode: `execute_simple()` local `messages` → `self.messages` — history logging now correctly includes system prompt and user prompt after agent run
+
 ## [0.15.0] - 2026-02-17
 
 ### Added
