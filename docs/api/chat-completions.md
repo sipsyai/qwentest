@@ -24,20 +24,20 @@ Mesaj listesine göre model yanıtı üretir. Tool calling, streaming ve thinkin
 
 | Parametre | Tip | Varsayılan | Açıklama |
 |-----------|-----|------------|----------|
-| `max_tokens` | integer\|null | model limiti | Maksimum üretilecek token sayısı |
+| `max_tokens` | integer\|null | model limiti | Maksimum üretilecek token sayısı. Frontend varsayılanı: `2048` |
 | `max_completion_tokens` | integer\|null | null | `max_tokens` aliası (OpenAI uyumluluk) |
 | `min_tokens` | integer | 0 | Minimum üretilecek token. Bu sayıya ulaşmadan stop/eos çalışmaz |
 | `n` | integer | 1 | Kaç farklı tamamlama üretilecek |
 
 ### Sampling Parametreleri
 
-| Parametre | Tip | Varsayılan | Açıklama |
-|-----------|-----|------------|----------|
-| `temperature` | number\|null | model default | Rastgelelik (0.0-2.0). **Thinking ON: 0.6, OFF: 0.7 önerilir. 0 KULLANMAYIN!** |
-| `top_p` | number\|null | model default | Nucleus sampling eşiği. **Thinking ON: 0.95, OFF: 0.8** |
-| `top_k` | integer\|null | null | En yüksek olasılıklı K tokenden seçim. **Qwen3 için 20 önerilir** |
-| `min_p` | number\|null | null | Minimum olasılık eşiği. **Qwen3 için 0 önerilir** |
-| `seed` | integer\|null | null | Tekrarlanabilir sonuçlar için sabit seed |
+| Parametre | Tip | Varsayılan | Açıklama | Frontend Default |
+|-----------|-----|------------|----------|-----------------|
+| `temperature` | number\|null | model default | Rastgelelik (0.0-2.0). **Thinking ON: 0.6, OFF: 0.7 önerilir. 0 KULLANMAYIN!** | `0.7` |
+| `top_p` | number\|null | model default | Nucleus sampling eşiği. **Thinking ON: 0.95, OFF: 0.8** | `0.9` |
+| `top_k` | integer\|null | null | En yüksek olasılıklı K tokenden seçim. **Qwen3 için 20 önerilir** | `0` (off, gönderilmez) |
+| `min_p` | number\|null | null | Minimum olasılık eşiği. **Qwen3 için 0 önerilir** | gönderilmez |
+| `seed` | integer\|null | null | Tekrarlanabilir sonuçlar için sabit seed | boş (gönderilmez) |
 
 ### Penaltiler
 
@@ -368,3 +368,126 @@ for chunk in stream:
     if chunk.choices[0].delta.content:
         print(chunk.choices[0].delta.content, end="")
 ```
+
+---
+
+## Frontend Kullanımı (Playground)
+
+Forge AI Studio Playground sayfası (`forge-ai-studio/pages/Playground.tsx`) bu endpoint'i `streamChatCompletion()` fonksiyonu (`forge-ai-studio/services/vllm.ts`) üzerinden kullanır. Aşağıda frontend'in gerçekte gönderdiği request yapıları ve bilinen tutarsızlıklar belgelenmektedir.
+
+### Bilinen Tutarsızlıklar
+
+| Konu | Docs Önerisi | Frontend Gerçeği | Etki |
+|------|-------------|-------------------|------|
+| `stream` | `false` (varsayılan), toggle ile değiştirilebilir | **Her zaman `true`** (hardcoded). UI toggle var ama API isteğine bağlı DEĞİL | Stream toggle kapatılsa bile istek hep streaming gider |
+| `stream_options` | `{"include_usage": true}` ile usage alınabilir | **Hiç gönderilmiyor** | Streaming yanıtlarda token usage bilgisi dönmez |
+| `top_p` | Thinking OFF: 0.8 | Varsayılan: **0.9** | Docs ile frontend varsayılanları farklı |
+| `top_k` | 20 önerilir | Varsayılan: **0** (off, body'ye dahil edilmez) | Frontend top_k kullanmıyor |
+| `max_tokens` | Model limiti | Varsayılan: **2048** | Sabit limit |
+| Thinking parametreleri | Thinking ON → temp 0.6, top_p 0.95 | Thinking toggle parametreleri **otomatik değiştirmiyor** | Slider ne ise o gider |
+
+### Parametre Dahil Etme Kuralları
+
+Frontend opsiyonel parametreleri koşullu olarak request body'ye dahil eder:
+
+| Parametre | Dahil Etme Koşulu | Varsayılan (dahil edilmez) |
+|-----------|-------------------|---------------------------|
+| `model` | Her zaman | — |
+| `messages` | Her zaman | — |
+| `temperature` | Her zaman | 0.7 |
+| `top_p` | Her zaman | 0.9 |
+| `max_tokens` | Her zaman | 2048 |
+| `stream` | Her zaman `true` | — |
+| `chat_template_kwargs` | Her zaman (thinking state'e göre) | `{"enable_thinking": false}` |
+| `top_k` | Sadece `> 0` ise | 0 (gönderilmez) |
+| `presence_penalty` | Sadece `!== 0` ise | 0 (gönderilmez) |
+| `frequency_penalty` | Sadece `!== 0` ise | 0 (gönderilmez) |
+| `repetition_penalty` | Sadece `!== 1` ise | 1.0 (gönderilmez) |
+| `seed` | Sadece set edilmişse | null (gönderilmez) |
+| `stop` | Sadece dolu array ise | [] (gönderilmez) |
+| `response_format` | Sadece JSON mode açıksa | null (gönderilmez) |
+
+### Örnek Request Body'leri
+
+#### 1. Normal Chat (Varsayılan Ayarlar)
+
+```json
+{
+  "model": "Qwen/Qwen3-4B",
+  "messages": [
+    {"role": "system", "content": "You are a helpful AI assistant."},
+    {"role": "user", "content": "Write a short poem about coding"}
+  ],
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "max_tokens": 2048,
+  "stream": true,
+  "chat_template_kwargs": {"enable_thinking": false}
+}
+```
+
+#### 2. Thinking Mode Açık
+
+```json
+{
+  "model": "Qwen/Qwen3-4B",
+  "messages": [
+    {"role": "system", "content": "You are a helpful AI assistant."},
+    {"role": "user", "content": "Bu SQL sorgusunu optimize et"}
+  ],
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "max_tokens": 2048,
+  "stream": true,
+  "chat_template_kwargs": {"enable_thinking": true}
+}
+```
+
+> **Not:** Thinking açıldığında temperature/top_p otomatik değişmez. Docs'un önerdiği 0.6/0.95 değerleri kullanıcının manuel ayarlamasını gerektirir.
+
+#### 3. JSON Mode
+
+```json
+{
+  "model": "Qwen/Qwen3-4B",
+  "messages": [
+    {"role": "system", "content": "You are a helpful AI assistant."},
+    {"role": "user", "content": "İstanbul hakkında JSON döndür"}
+  ],
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "max_tokens": 2048,
+  "stream": true,
+  "chat_template_kwargs": {"enable_thinking": false},
+  "response_format": {"type": "json_object"}
+}
+```
+
+#### 4. Tüm Gelişmiş Parametreler Açık
+
+```json
+{
+  "model": "Qwen/Qwen3-4B",
+  "messages": [
+    {"role": "system", "content": "You are a helpful AI assistant."},
+    {"role": "user", "content": "Uzun bir hikaye yaz"}
+  ],
+  "temperature": 0.9,
+  "top_p": 0.85,
+  "max_tokens": 4096,
+  "stream": true,
+  "chat_template_kwargs": {"enable_thinking": true},
+  "top_k": 50,
+  "presence_penalty": 1.5,
+  "frequency_penalty": 0.5,
+  "repetition_penalty": 1.05,
+  "seed": 42,
+  "stop": ["END", "###"]
+}
+```
+
+### Kaynak Kod Referansları
+
+- **Stream fonksiyonu:** `forge-ai-studio/services/vllm.ts` → `streamChatCompletion()` (satır 126-219)
+- **Request oluşturma:** `forge-ai-studio/pages/Playground.tsx` → `handleRun()` (satır 162-175)
+- **Fallback mekanizması:** `forge-ai-studio/services/vllm.ts` → `fetchWithFallback()` (satır 23-33)

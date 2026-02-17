@@ -3,6 +3,12 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.7.1] - 2026-02-17
+### Changed
+- docs/api/chat-completions.md: Sampling tablosuna "Frontend Default" kolonu + "Frontend Kullanimi (Playground)" section
+- docs/api/qwen3-thinking.md: Onerilen parametreler tablosuna "Frontend Davranisi" kolonu + frontend notu
+- docs/api/README.md: "Frontend Entegrasyonu" section eklendi
+
 ## [0.7.0] - 2026-02-17
 ### Removed
 - localStorage: settings ve history icin localStorage tamamen kaldirildi

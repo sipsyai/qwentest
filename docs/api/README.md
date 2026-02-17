@@ -61,6 +61,24 @@ Kimlik doğrulama gerekmez. `api_key` herhangi bir değer alabilir.
 | Thinking Mode | [qwen3-thinking.md](qwen3-thinking.md) | Düşünme modu kontrolü |
 | Tool Calling | [tool-calling.md](tool-calling.md) | Fonksiyon çağırma |
 
+## Frontend Entegrasyonu
+
+Forge AI Studio frontend'i (`forge-ai-studio/`) bu API'leri Vite proxy üzerinden kullanır:
+
+| Proxy Yolu | Hedef | Kullanım |
+|------------|-------|----------|
+| `/api/chat` | `http://192.168.1.8:8010/v1` | Chat completion (streaming) |
+| `/api/embed` | `http://192.168.1.8:8011/v1` | Embedding üretimi |
+| `/api/kb` | `http://localhost:8833` | Knowledge Base (pgvector) |
+| `/api/strapi` | `https://strapi.sipsy.ai` | Strapi CMS veri çekme |
+
+**Önemli notlar:**
+- Tüm chat istekleri **her zaman streaming** gider (`stream: true` hardcoded). UI'da stream toggle var ama API isteğine etkisi yok.
+- `stream_options` gönderilmediğinden streaming yanıtlarda usage/token istatistikleri dönmez.
+- Fallback URL desteği var — birincil URL başarısız olursa (`TypeError` network hatası) otomatik olarak yedek URL denenir.
+- `chat_template_kwargs` her istekte explicit gönderilir (thinking durumu ne olursa olsun).
+- Detaylı frontend request örnekleri: [chat-completions.md — Frontend Kullanımı](chat-completions.md#frontend-kullanımı-playground)
+
 ## Python SDK
 
 ```python

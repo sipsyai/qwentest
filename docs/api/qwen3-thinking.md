@@ -80,14 +80,16 @@ Thinking bloğunu yanıtta gösterme kontrolü.
 
 ## Önerilen Parametreler
 
-| Parametre | Thinking ON | Thinking OFF |
-|-----------|-------------|--------------|
-| `temperature` | **0.6** | **0.7** |
-| `top_p` | **0.95** | **0.8** |
-| `top_k` | 20 | 20 |
-| `min_p` | 0 | 0 |
+| Parametre | Thinking ON | Thinking OFF | Frontend Davranışı |
+|-----------|-------------|--------------|-------------------|
+| `temperature` | **0.6** | **0.7** | Slider değeri gider (varsayılan 0.7). Thinking toggle otomatik değiştirmez |
+| `top_p` | **0.95** | **0.8** | Slider değeri gider (varsayılan 0.9). Thinking toggle otomatik değiştirmez |
+| `top_k` | 20 | 20 | Varsayılan 0 (off). 0 iken request body'ye dahil edilmez |
+| `min_p` | 0 | 0 | Gönderilmez |
 
 **UYARI:** `temperature: 0` (greedy decoding) kullanmayın. Sonsuz tekrar ve performans düşüşüne neden olur.
+
+> **Frontend Notu:** Playground her istekte `chat_template_kwargs: {"enable_thinking": true/false}` gönderir (toggle durumuna göre). Bu, thinking durumunun her zaman explicit belirtilmesi açısından iyi bir pratiktir — vLLM'in varsayılanına bağımlı kalmaz.
 
 ---
 
