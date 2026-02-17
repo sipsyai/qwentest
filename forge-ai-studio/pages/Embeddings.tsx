@@ -49,6 +49,7 @@ Machine learning models require clean datasets.`);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [kbSearchTopK, setKbSearchTopK] = useState(10);
   const [kbSearchThreshold, setKbSearchThreshold] = useState(0.2);
+  const [kbSearchSources, setKbSearchSources] = useState<string[]>([]);
 
   // Check for incoming data from Datasets page
   useEffect(() => {
@@ -262,7 +263,8 @@ Machine learning models require clean datasets.`);
       const embedResponse = await generateEmbeddings(selectedModel, [kbSearchQuery.trim()]);
       const queryVector = embedResponse.data[0]?.embedding;
       if (!queryVector) throw new Error('Failed to generate query embedding');
-      const results = await searchSimilar(queryVector, kbSearchTopK, kbSearchThreshold);
+      const sources = kbSearchSources.length > 0 ? kbSearchSources : undefined;
+      const results = await searchSimilar(queryVector, kbSearchTopK, kbSearchThreshold, sources);
       setKbSearchResults(results);
     } catch (err: any) {
       setError(`Search failed: ${err.message}`);
@@ -622,6 +624,33 @@ Machine learning models require clean datasets.`);
                   </select>
                 )}
 
+                {/* Search Source Chips */}
+                {kbStats && kbStats.source_labels.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase mr-0.5">Search filter:</span>
+                    {kbStats.source_labels.map(label => {
+                      const isSelected = kbSearchSources.includes(label);
+                      return (
+                        <button key={label}
+                          onClick={() => setKbSearchSources(prev =>
+                            isSelected ? prev.filter(s => s !== label) : [...prev, label]
+                          )}
+                          className={`px-2.5 py-1 text-[11px] font-medium rounded-full border transition-all ${
+                            isSelected
+                              ? 'bg-amber-600/20 text-amber-300 border-amber-600/50'
+                              : 'bg-slate-800/50 text-slate-500 border-slate-700 hover:text-slate-300 hover:border-slate-600'
+                          }`}
+                        >{label}</button>
+                      );
+                    })}
+                    {kbSearchSources.length > 0 && (
+                      <button onClick={() => setKbSearchSources([])}
+                        className="px-2.5 py-1 text-[11px] font-medium rounded-full text-slate-500 hover:text-white transition-colors"
+                      >Clear all</button>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex items-center gap-3 ml-auto">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] text-slate-500 font-bold uppercase">Top K</span>
@@ -663,6 +692,11 @@ Machine learning models require clean datasets.`);
                     >
                       <X size={14} />
                     </button>
+                  )}
+                  {kbSearchSources.length > 0 && (
+                    <span className="text-[10px] font-bold text-amber-400 bg-amber-900/20 border border-amber-900/40 px-2 py-1 rounded-lg">
+                      {kbSearchSources.length} source{kbSearchSources.length > 1 ? 's' : ''} selected
+                    </span>
                   )}
                 </div>
               </div>

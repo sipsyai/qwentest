@@ -3,6 +3,17 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.14.0] - 2026-02-17
+
+### Added
+- Embeddings KB Search: multi-select dataset source chip UI for filtering semantic search by source_label
+- Search filter badge showing number of selected sources next to search input
+- `kbSearchSources` state wired to `searchSimilar(vector, topK, threshold, sources)` 4th param
+
+### Changed
+- Embeddings KB search now passes selected source labels to backend SQL `source_label IN (...)` filter
+- List-view Source/Label dropdowns preserved separately for document browsing
+
 ## [0.13.1] - 2026-02-17
 
 ### Added
