@@ -74,15 +74,25 @@ async def init_db():
         # Datasets table
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS datasets (
-                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                name        VARCHAR(255) NOT NULL,
-                url         TEXT NOT NULL,
-                method      VARCHAR(10) NOT NULL DEFAULT 'GET',
-                token       TEXT NOT NULL DEFAULT '',
-                headers     JSONB NOT NULL DEFAULT '{}',
-                created_at  TIMESTAMPTZ DEFAULT NOW(),
-                updated_at  TIMESTAMPTZ DEFAULT NOW()
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name            VARCHAR(255) NOT NULL,
+                url             TEXT NOT NULL,
+                method          VARCHAR(10) NOT NULL DEFAULT 'GET',
+                token           TEXT NOT NULL DEFAULT '',
+                headers         JSONB NOT NULL DEFAULT '{}',
+                array_path      TEXT NOT NULL DEFAULT '',
+                extract_fields  JSONB NOT NULL DEFAULT '[]',
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ DEFAULT NOW()
             )
+        """))
+
+        # Add new columns to existing datasets table (migration)
+        await conn.execute(text("""
+            ALTER TABLE datasets ADD COLUMN IF NOT EXISTS array_path TEXT NOT NULL DEFAULT ''
+        """))
+        await conn.execute(text("""
+            ALTER TABLE datasets ADD COLUMN IF NOT EXISTS extract_fields JSONB NOT NULL DEFAULT '[]'
         """))
 
         # Dataset records table

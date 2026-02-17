@@ -123,6 +123,8 @@ class DatasetCreate(BaseModel):
     method: str = "GET"
     token: str = ""
     headers: dict = {}
+    array_path: str = ""
+    extract_fields: list = []
 
 
 class DatasetUpdate(BaseModel):
@@ -131,6 +133,8 @@ class DatasetUpdate(BaseModel):
     method: Optional[str] = None
     token: Optional[str] = None
     headers: Optional[dict] = None
+    array_path: Optional[str] = None
+    extract_fields: Optional[list] = None
 
 
 class DatasetResponse(BaseModel):
@@ -140,6 +144,8 @@ class DatasetResponse(BaseModel):
     method: str
     token: str
     headers: dict
+    array_path: str
+    extract_fields: list
     created_at: datetime
     updated_at: datetime
 

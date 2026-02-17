@@ -11,6 +11,8 @@ export interface Dataset {
   method: string;
   token: string;
   headers: Record<string, string>;
+  array_path: string;
+  extract_fields: string[];
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +23,8 @@ export interface DatasetCreate {
   method?: string;
   token?: string;
   headers?: Record<string, string>;
+  array_path?: string;
+  extract_fields?: string[];
 }
 
 export interface DatasetUpdate {
@@ -29,6 +33,8 @@ export interface DatasetUpdate {
   method?: string;
   token?: string;
   headers?: Record<string, string>;
+  array_path?: string;
+  extract_fields?: string[];
 }
 
 export interface FetchResult {

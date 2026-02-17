@@ -3,6 +3,22 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.9.0] - 2026-02-17
+
+### Added
+- Dataset field extraction config: array_path + extract_fields kolonu, alan secimi toolbar
+- "Extract & Save All" butonu: tum array elemanlarindan secili alanlari cikarip toplu kaydetme
+- Manuel "Fetch" butonu: dataset verilerini yeniden cekme
+- DatasetRecords tablo gorunumu: expand/collapse JSON listesi yerine duz tablo, kolon otomatik turetme
+- `datasets` tablosuna `array_path` (TEXT) ve `extract_fields` (JSONB) kolonlari
+- ALTER TABLE migration: mevcut datasets tablosuna yeni kolonlari ekler
+
+### Changed
+- DatasetRecords.tsx: Liste gorunumunden responsive tablo gorunumune gecis
+- Datasets.tsx: Field extraction toolbar/config panel eklendi
+- datasetsApi.ts: Dataset type'larina array_path, extract_fields alanlari
+- kb-service: Dataset CRUD query'lerinde yeni kolonlar + _row_to_dataset_response helper
+
 ## [0.8.0] - 2026-02-17
 
 ### Added

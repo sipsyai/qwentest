@@ -369,21 +369,25 @@ async def clear_history(session: AsyncSession = Depends(get_session)):
 # ==================== Dataset Endpoints ====================
 
 
+def _row_to_dataset_response(row) -> DatasetResponse:
+    return DatasetResponse(
+        id=str(row.id), name=row.name, url=row.url, method=row.method,
+        token=row.token,
+        headers=row.headers if isinstance(row.headers, dict) else json.loads(row.headers or '{}'),
+        array_path=row.array_path or '',
+        extract_fields=row.extract_fields if isinstance(row.extract_fields, list) else json.loads(row.extract_fields or '[]'),
+        created_at=row.created_at, updated_at=row.updated_at,
+    )
+
+
 @app.get("/api/kb/datasets", response_model=DatasetListResponse)
 async def list_datasets(session: AsyncSession = Depends(get_session)):
     result = await session.execute(text(
-        "SELECT id, name, url, method, token, headers, created_at, updated_at "
+        "SELECT id, name, url, method, token, headers, array_path, extract_fields, created_at, updated_at "
         "FROM datasets ORDER BY created_at DESC"
     ))
     rows = result.fetchall()
-    data = [
-        DatasetResponse(
-            id=str(row.id), name=row.name, url=row.url, method=row.method,
-            token=row.token, headers=row.headers if isinstance(row.headers, dict) else json.loads(row.headers or '{}'),
-            created_at=row.created_at, updated_at=row.updated_at,
-        )
-        for row in rows
-    ]
+    data = [_row_to_dataset_response(row) for row in rows]
     return DatasetListResponse(data=data, total=len(data))
 
 
@@ -392,26 +396,23 @@ async def create_dataset(req: DatasetCreate, session: AsyncSession = Depends(get
     ds_id = str(uuid.uuid4())
     await session.execute(
         text("""
-            INSERT INTO datasets (id, name, url, method, token, headers)
-            VALUES (:id, :name, :url, :method, :token, CAST(:headers AS jsonb))
+            INSERT INTO datasets (id, name, url, method, token, headers, array_path, extract_fields)
+            VALUES (:id, :name, :url, :method, :token, CAST(:headers AS jsonb), :array_path, CAST(:extract_fields AS jsonb))
         """),
         {
             "id": ds_id, "name": req.name, "url": req.url, "method": req.method,
             "token": req.token, "headers": json.dumps(req.headers),
+            "array_path": req.array_path, "extract_fields": json.dumps(req.extract_fields),
         }
     )
     await session.commit()
 
     result = await session.execute(
-        text("SELECT id, name, url, method, token, headers, created_at, updated_at FROM datasets WHERE id = :id"),
+        text("SELECT id, name, url, method, token, headers, array_path, extract_fields, created_at, updated_at FROM datasets WHERE id = :id"),
         {"id": ds_id}
     )
     row = result.fetchone()
-    return DatasetResponse(
-        id=str(row.id), name=row.name, url=row.url, method=row.method,
-        token=row.token, headers=row.headers if isinstance(row.headers, dict) else json.loads(row.headers or '{}'),
-        created_at=row.created_at, updated_at=row.updated_at,
-    )
+    return _row_to_dataset_response(row)
 
 
 @app.put("/api/kb/datasets/{ds_id}", response_model=DatasetResponse)
@@ -433,6 +434,12 @@ async def update_dataset(ds_id: str, req: DatasetUpdate, session: AsyncSession =
     if req.headers is not None:
         updates["headers"] = "headers = CAST(:headers AS jsonb)"
         params["headers"] = json.dumps(req.headers)
+    if req.array_path is not None:
+        updates["array_path"] = "array_path = :array_path"
+        params["array_path"] = req.array_path
+    if req.extract_fields is not None:
+        updates["extract_fields"] = "extract_fields = CAST(:extract_fields AS jsonb)"
+        params["extract_fields"] = json.dumps(req.extract_fields)
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -448,15 +455,11 @@ async def update_dataset(ds_id: str, req: DatasetUpdate, session: AsyncSession =
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     result = await session.execute(
-        text("SELECT id, name, url, method, token, headers, created_at, updated_at FROM datasets WHERE id = :id"),
+        text("SELECT id, name, url, method, token, headers, array_path, extract_fields, created_at, updated_at FROM datasets WHERE id = :id"),
         {"id": ds_id}
     )
     row = result.fetchone()
-    return DatasetResponse(
-        id=str(row.id), name=row.name, url=row.url, method=row.method,
-        token=row.token, headers=row.headers if isinstance(row.headers, dict) else json.loads(row.headers or '{}'),
-        created_at=row.created_at, updated_at=row.updated_at,
-    )
+    return _row_to_dataset_response(row)
 
 
 @app.delete("/api/kb/datasets/{ds_id}", response_model=MessageResponse)

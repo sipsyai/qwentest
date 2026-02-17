@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Database, Plus, Pencil, Trash2, RefreshCw, ChevronRight, ChevronDown,
   AlertCircle, CheckCircle2, Globe, Lock, Send, Save, X, Loader2,
-  CheckSquare, Square, ArrowLeft, Braces, List
+  CheckSquare, Square, ArrowLeft, Braces, List, Settings, Download
 } from 'lucide-react';
 import {
   getDatasets, createDataset, updateDataset, deleteDataset,
@@ -14,6 +14,59 @@ import {
 interface HeaderPair {
   key: string;
   value: string;
+}
+
+// --- Field Extraction Utilities ---
+
+function flattenFieldPaths(items: any[], maxSample = 20): string[] {
+  const paths = new Set<string>();
+  const sample = items.slice(0, maxSample);
+  const walk = (obj: any, prefix: string) => {
+    if (obj === null || obj === undefined || typeof obj !== 'object' || Array.isArray(obj)) return;
+    for (const key of Object.keys(obj)) {
+      const fullPath = prefix ? `${prefix}.${key}` : key;
+      const val = obj[key];
+      if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+        walk(val, fullPath);
+      } else {
+        paths.add(fullPath);
+      }
+    }
+  };
+  sample.forEach(item => walk(item, ''));
+  return Array.from(paths).sort();
+}
+
+function getNestedValue(obj: any, path: string): any {
+  const parts = path.split('.');
+  let cur = obj;
+  for (const p of parts) {
+    if (cur === null || cur === undefined) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function buildFieldKeys(fields: string[]): Record<string, string> {
+  const leafCount: Record<string, number> = {};
+  for (const f of fields) {
+    const leaf = f.includes('.') ? f.split('.').pop()! : f;
+    leafCount[leaf] = (leafCount[leaf] || 0) + 1;
+  }
+  const result: Record<string, string> = {};
+  for (const f of fields) {
+    const leaf = f.includes('.') ? f.split('.').pop()! : f;
+    result[f] = leafCount[leaf] > 1 ? f : leaf;
+  }
+  return result;
+}
+
+function extractFromItem(item: any, fields: string[], fieldKeys: Record<string, string>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const f of fields) {
+    out[fieldKeys[f]] = getNestedValue(item, f);
+  }
+  return out;
 }
 
 const Datasets = () => {
@@ -40,6 +93,12 @@ const Datasets = () => {
   const [selectedRowIndices, setSelectedRowIndices] = useState<Set<number>>(new Set());
   const [savingRecords, setSavingRecords] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  // Field extraction state
+  const [showFieldConfig, setShowFieldConfig] = useState(false);
+  const [fieldCandidates, setFieldCandidates] = useState<string[]>([]);
+  const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
+  const [extracting, setExtracting] = useState(false);
 
   // Load datasets on mount
   useEffect(() => {
@@ -147,12 +206,20 @@ const Datasets = () => {
     setFetchElapsed(null);
     setJsonPath([]);
     setSelectedRowIndices(new Set());
+    setShowFieldConfig(false);
+    setFieldCandidates([]);
+    setSelectedFields(new Set(ds.extract_fields || []));
     setFetchLoading(true);
 
     try {
       const result = await fetchDatasetUrl(ds.id);
       setFetchedJson(result.data);
       setFetchElapsed(result.elapsed_ms);
+
+      // Auto-navigate to saved array_path
+      if (ds.array_path) {
+        setJsonPath(ds.array_path.split('.'));
+      }
     } catch (err: any) {
       setFetchError(err.message || 'Fetch failed');
     } finally {
@@ -248,6 +315,91 @@ const Datasets = () => {
       setFetchError(`Save failed: ${err.message}`);
     } finally {
       setSavingRecords(false);
+    }
+  };
+
+  // --- Field Extraction Handlers ---
+
+  // Compute field candidates when we're in array_of_objects view
+  useEffect(() => {
+    if (nodeType === 'array_of_objects' && Array.isArray(currentNode) && currentNode.length > 0) {
+      const candidates = flattenFieldPaths(currentNode);
+      setFieldCandidates(candidates);
+    } else {
+      setFieldCandidates([]);
+    }
+  }, [currentNode, nodeType]);
+
+  const toggleField = (field: string) => {
+    setSelectedFields(prev => {
+      const next = new Set(prev);
+      if (next.has(field)) next.delete(field); else next.add(field);
+      return next;
+    });
+  };
+
+  const selectedFieldsArr = useMemo((): string[] => [...selectedFields], [selectedFields]);
+  const fieldKeys = useMemo(() => buildFieldKeys(selectedFieldsArr), [selectedFieldsArr]);
+
+  const extractionPreview = useMemo(() => {
+    if (!Array.isArray(currentNode) || currentNode.length === 0 || selectedFields.size === 0) return null;
+    return extractFromItem(currentNode[0], selectedFieldsArr, fieldKeys);
+  }, [currentNode, selectedFields, fieldKeys]);
+
+  const handleSaveFieldConfig = async () => {
+    if (!selectedDataset) return;
+    const arrayPath = jsonPath.join('.');
+    const fields: string[] = [...selectedFields];
+    try {
+      const updated = await updateDataset(selectedDataset.id, {
+        array_path: arrayPath,
+        extract_fields: fields,
+      });
+      setDatasets(prev => prev.map(d => d.id === updated.id ? updated : d));
+      setSelectedDataset(updated);
+      setShowFieldConfig(false);
+      setSaveSuccess('Field config saved');
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch (err: any) {
+      setFetchError(`Save config failed: ${err.message}`);
+    }
+  };
+
+  const handleExtractAndSaveAll = async () => {
+    if (!selectedDataset || !Array.isArray(currentNode) || selectedFields.size === 0) return;
+    setExtracting(true);
+    setSaveSuccess(null);
+
+    try {
+      const fields: string[] = [...selectedFields];
+      const fk = buildFieldKeys(fields);
+      const pathStr = '$' + (jsonPath.length > 0 ? '.' + jsonPath.join('.') : '');
+
+      const records = currentNode.map((item: any, idx: number) => {
+        const extracted = extractFromItem(item, fields, fk);
+        const firstVal = extracted[fk[fields[0]]];
+        return {
+          dataset_id: selectedDataset.id,
+          data: extracted,
+          json_path: `${pathStr}[${idx}]`,
+          label: firstVal != null ? String(firstVal) : `Row ${idx}`,
+        };
+      });
+
+      // Bulk save in batches of 200
+      let totalSaved = 0;
+      for (let i = 0; i < records.length; i += 200) {
+        const batch = records.slice(i, i + 200);
+        const count = await saveDatasetRecords(batch);
+        totalSaved += count;
+      }
+
+      setSaveSuccess(`Extracted & saved ${totalSaved} records`);
+      setTimeout(() => setSaveSuccess(null), 5000);
+    } catch (err: any) {
+      setFetchError(`Extract failed: ${err.message}`);
+    } finally {
+      setExtracting(false);
     }
   };
 
@@ -491,6 +643,17 @@ const Datasets = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0 ml-4">
+            {selectedDataset && !fetchLoading && (
+              <button
+                onClick={() => selectedDataset && handleFetch(selectedDataset)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-300 bg-slate-800 rounded-lg hover:bg-slate-700 border border-slate-700 transition-colors"
+                title="Re-fetch data"
+              >
+                <RefreshCw size={13} />
+                Fetch
+              </button>
+            )}
+
             {selectedRowIndices.size > 0 && (
               <span className="text-xs font-bold text-blue-400 bg-blue-900/20 px-2 py-0.5 rounded border border-blue-900/30">
                 {selectedRowIndices.size} selected
@@ -515,6 +678,138 @@ const Datasets = () => {
             )}
           </div>
         </div>
+
+        {/* Field Extraction Toolbar */}
+        {!fetchLoading && fetchedJson !== null && nodeType === 'array_of_objects' && fieldCandidates.length > 0 && (
+          <div className="border-b border-slate-800 bg-slate-900/40 shrink-0">
+            {/* Toolbar row */}
+            <div className="px-6 py-2.5 flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <Settings size={13} />
+                <span className="font-bold">Field Extraction</span>
+              </div>
+
+              {/* Selected field tags */}
+              {selectedFields.size > 0 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  {selectedFieldsArr.map(f => (
+                    <span
+                      key={f}
+                      className="px-2 py-0.5 text-[10px] font-bold bg-blue-900/30 text-blue-400 border border-blue-800/40 rounded-full cursor-pointer hover:bg-red-900/30 hover:text-red-400 hover:border-red-800/40 transition-colors"
+                      onClick={() => toggleField(f)}
+                      title={`Click to remove: ${f}`}
+                    >
+                      {fieldKeys[f] || f}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex-1" />
+
+              <button
+                onClick={() => setShowFieldConfig(prev => !prev)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                  showFieldConfig
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                }`}
+              >
+                <Settings size={13} />
+                Configure Fields
+              </button>
+
+              {selectedFields.size > 0 && (selectedDataset?.extract_fields?.length ?? 0) > 0 && (
+                <button
+                  onClick={handleExtractAndSaveAll}
+                  disabled={extracting}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-50"
+                >
+                  {extracting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                  Extract & Save All ({Array.isArray(currentNode) ? currentNode.length : 0})
+                </button>
+              )}
+            </div>
+
+            {/* Expanded config panel */}
+            {showFieldConfig && (
+              <div className="px-6 pb-4 pt-1 border-t border-slate-800/50">
+                <p className="text-[11px] text-slate-500 mb-3">Select fields to extract from each item:</p>
+
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1 mb-4 max-h-[200px] overflow-y-auto">
+                  {fieldCandidates.map(field => {
+                    const sampleVal = Array.isArray(currentNode) && currentNode.length > 0
+                      ? getNestedValue(currentNode[0], field) : undefined;
+                    const valType = sampleVal === null ? 'null' : typeof sampleVal;
+                    const isSelected = selectedFields.has(field);
+                    return (
+                      <label
+                        key={field}
+                        className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-xs transition-colors ${
+                          isSelected ? 'bg-blue-900/15 text-blue-300' : 'text-slate-400 hover:text-white hover:bg-slate-800/30'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleField(field)}
+                          className="accent-blue-500"
+                        />
+                        <span className="font-mono truncate flex-1">{field}</span>
+                        <span className={`text-[9px] px-1 py-0.5 rounded ${
+                          valType === 'null' ? 'text-slate-600' :
+                          valType === 'number' ? 'text-amber-500' :
+                          valType === 'boolean' ? 'text-purple-500' :
+                          'text-slate-500'
+                        }`}>
+                          {valType}
+                        </span>
+                        {isSelected && (
+                          <span className="text-[9px] text-emerald-500">
+                            → {fieldKeys[field] || field}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {/* Preview */}
+                {extractionPreview && (
+                  <div className="mb-3">
+                    <p className="text-[10px] text-slate-500 mb-1 uppercase font-bold">Preview (first item):</p>
+                    <pre className="text-[11px] font-mono text-emerald-400 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 overflow-x-auto">
+                      {JSON.stringify(extractionPreview, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSaveFieldConfig}
+                    disabled={selectedFields.size === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors disabled:opacity-50"
+                  >
+                    <Save size={13} />
+                    Save Config
+                  </button>
+                  <button
+                    onClick={() => setShowFieldConfig(false)}
+                    className="px-3 py-1.5 text-xs font-bold text-slate-400 bg-slate-800 rounded-lg hover:text-white border border-slate-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  {selectedFields.size > 0 && (
+                    <span className="text-[10px] text-slate-500 ml-2">
+                      {selectedFields.size} field{selectedFields.size > 1 ? 's' : ''} selected
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Explorer Content */}
         <div className="flex-1 overflow-auto">

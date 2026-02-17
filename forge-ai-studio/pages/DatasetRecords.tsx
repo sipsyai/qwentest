@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   FileJson, Trash2, ChevronDown, ChevronRight, Search,
   Loader2, AlertCircle, CheckSquare, Square, X
@@ -25,8 +25,8 @@ const DatasetRecords = () => {
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Expanded rows
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // Expanded row (single row detail)
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Load datasets for filter dropdown
   useEffect(() => {
@@ -107,15 +107,6 @@ const DatasetRecords = () => {
     }
   };
 
-  // Expand/collapse
-  const toggleExpand = (id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
   // Get dataset name by id
   const getDatasetName = (dsId: string) => {
     return datasets.find(d => d.id === dsId)?.name || dsId.slice(0, 8);
@@ -128,6 +119,17 @@ const DatasetRecords = () => {
         JSON.stringify(r.data).toLowerCase().includes(searchTerm.toLowerCase())
       )
     : records;
+
+  // Derive table columns from record data keys
+  const dataColumns = useMemo(() => {
+    const allKeys = new Set<string>();
+    filteredRecords.slice(0, 50).forEach(r => {
+      if (r.data && typeof r.data === 'object') {
+        Object.keys(r.data).forEach(k => allKeys.add(k));
+      }
+    });
+    return Array.from(allKeys);
+  }, [filteredRecords]);
 
   const totalPages = Math.ceil(total / limit);
 
@@ -202,8 +204,8 @@ const DatasetRecords = () => {
         </div>
       )}
 
-      {/* Records List */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Records Table */}
+      <div className="flex-1 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 size={24} className="text-blue-500 animate-spin" />
@@ -215,100 +217,99 @@ const DatasetRecords = () => {
             <p className="text-xs text-slate-500 mt-1">Save records from the Datasets page</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-800/50">
-            {/* Header row */}
-            <div className="flex items-center px-6 py-2 bg-slate-900/50 text-xs text-slate-500 font-medium uppercase sticky top-0 z-10">
-              <div className="w-10 text-center">
-                <button onClick={toggleSelectAll} className="hover:text-white transition-colors">
-                  {selectedIds.size > 0 && selectedIds.size === records.length
-                    ? <CheckSquare size={14} /> : <Square size={14} />}
-                </button>
-              </div>
-              <div className="flex-1 px-3">Label</div>
-              <div className="w-32 px-3">Dataset</div>
-              <div className="w-28 px-3">Path</div>
-              <div className="w-36 px-3">Created</div>
-              <div className="w-16"></div>
-            </div>
-
-            {filteredRecords.map(record => (
-              <div key={record.id}>
-                <div
-                  className={`flex items-center px-6 py-3 text-sm transition-colors cursor-pointer ${
-                    selectedIds.has(record.id) ? 'bg-blue-900/10' : 'hover:bg-slate-800/20'
-                  }`}
-                >
-                  <div className="w-10 text-center" onClick={() => toggleSelect(record.id)}>
-                    <div className={`transition-colors ${
-                      selectedIds.has(record.id) ? 'text-blue-400' : 'text-slate-600 hover:text-slate-400'
-                    }`}>
-                      {selectedIds.has(record.id) ? <CheckSquare size={14} /> : <Square size={14} />}
-                    </div>
-                  </div>
-
-                  <div
-                    className="flex-1 px-3 min-w-0 cursor-pointer"
-                    onClick={() => toggleExpand(record.id)}
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-slate-900 text-slate-400 font-medium uppercase text-xs border-b border-slate-800 sticky top-0 z-10">
+              <tr>
+                <th className="px-4 py-3 w-10 text-center">
+                  <button onClick={toggleSelectAll} className="hover:text-white transition-colors">
+                    {selectedIds.size > 0 && selectedIds.size === filteredRecords.length
+                      ? <CheckSquare size={14} /> : <Square size={14} />}
+                  </button>
+                </th>
+                <th className="px-4 py-3 w-12">#</th>
+                {dataColumns.map(col => (
+                  <th key={col} className="px-4 py-3">{col}</th>
+                ))}
+                <th className="px-4 py-3 w-28">Dataset</th>
+                <th className="px-4 py-3 w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/50">
+              {filteredRecords.map((record, idx) => (
+                <React.Fragment key={record.id}>
+                  <tr
+                    className={`transition-colors group cursor-pointer ${
+                      selectedIds.has(record.id)
+                        ? 'bg-blue-900/10 hover:bg-blue-900/20'
+                        : 'hover:bg-slate-800/30'
+                    }`}
+                    onClick={() => setExpandedId(prev => prev === record.id ? null : record.id)}
                   >
-                    <div className="flex items-center gap-2">
-                      {expandedIds.has(record.id)
-                        ? <ChevronDown size={14} className="text-slate-500 shrink-0" />
-                        : <ChevronRight size={14} className="text-slate-500 shrink-0" />
-                      }
-                      <span className="text-white text-xs font-medium truncate">
-                        {record.label || 'Untitled'}
+                    <td className="px-4 py-3 text-center" onClick={e => { e.stopPropagation(); toggleSelect(record.id); }}>
+                      <div className={`transition-colors ${
+                        selectedIds.has(record.id) ? 'text-blue-400' : 'text-slate-600 group-hover:text-slate-400'
+                      }`}>
+                        {selectedIds.has(record.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 text-xs">{(page - 1) * limit + idx}</td>
+                    {dataColumns.map(col => {
+                      const val = record.data?.[col];
+                      return (
+                        <td key={col} className="px-4 py-3 text-xs max-w-[250px] overflow-hidden text-ellipsis">
+                          <span className={`font-mono ${
+                            val === null || val === undefined ? 'text-slate-600 italic' :
+                            typeof val === 'number' ? 'text-amber-400' :
+                            typeof val === 'boolean' ? 'text-purple-400' :
+                            'text-slate-300'
+                          }`}>
+                            {val === null ? 'null' : val === undefined ? '-' : typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                          </span>
+                        </td>
+                      );
+                    })}
+                    <td className="px-4 py-3">
+                      <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded truncate block max-w-[100px]">
+                        {getDatasetName(record.dataset_id)}
                       </span>
-                    </div>
-                    {!expandedIds.has(record.id) && (
-                      <p className="text-[10px] text-slate-600 font-mono truncate ml-6 mt-0.5">
-                        {JSON.stringify(record.data).slice(0, 120)}
-                      </p>
-                    )}
-                  </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDelete(record.id); }}
+                        className="p-1 text-slate-600 hover:text-red-400 rounded transition-colors opacity-0 group-hover:opacity-100"
+                        title="Delete record"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </td>
+                  </tr>
 
-                  <div className="w-32 px-3">
-                    <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded truncate block">
-                      {getDatasetName(record.dataset_id)}
-                    </span>
-                  </div>
-
-                  <div className="w-28 px-3">
-                    <span className="text-[10px] text-slate-500 font-mono">{record.json_path}</span>
-                  </div>
-
-                  <div className="w-36 px-3">
-                    <span className="text-[10px] text-slate-500">
-                      {new Date(record.created_at).toLocaleDateString('tr-TR', {
-                        day: '2-digit', month: '2-digit', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-
-                  <div className="w-16 flex justify-end">
-                    <button
-                      onClick={e => { e.stopPropagation(); handleDelete(record.id); }}
-                      className="p-1.5 text-slate-600 hover:text-red-400 rounded transition-colors"
-                      title="Delete record"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expanded JSON */}
-                {expandedIds.has(record.id) && (
-                  <div className="px-6 pb-3">
-                    <div className="ml-10 bg-slate-900 border border-slate-800 rounded-xl overflow-auto max-h-64">
-                      <pre className="text-[11px] font-mono text-blue-300 p-4 leading-relaxed">
-                        {JSON.stringify(record.data, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+                  {/* Expanded detail row */}
+                  {expandedId === record.id && (
+                    <tr>
+                      <td colSpan={dataColumns.length + 4} className="px-4 py-3 bg-slate-900/50">
+                        <div className="flex gap-4 text-[11px]">
+                          <div className="flex-1">
+                            <pre className="font-mono text-blue-300 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 overflow-x-auto max-h-48">
+                              {JSON.stringify(record.data, null, 2)}
+                            </pre>
+                          </div>
+                          <div className="text-slate-500 space-y-1 shrink-0 w-40">
+                            <p><span className="text-slate-600">Path:</span> {record.json_path}</p>
+                            <p><span className="text-slate-600">Label:</span> {record.label || '-'}</p>
+                            <p><span className="text-slate-600">Created:</span> {new Date(record.created_at).toLocaleDateString('tr-TR', {
+                              day: '2-digit', month: '2-digit', year: 'numeric',
+                              hour: '2-digit', minute: '2-digit',
+                            })}</p>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
