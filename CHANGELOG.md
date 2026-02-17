@@ -3,6 +3,11 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.13.1] - 2026-02-17
+
+### Added
+- Playground: plain-English info descriptions for all 9 model parameters (Temperature, Top P, Top K, Max Tokens, Presence Penalty, Frequency Penalty, Repetition Penalty, Seed, Stop Sequences)
+
 ## [0.13.0] - 2026-02-17
 
 ### Added

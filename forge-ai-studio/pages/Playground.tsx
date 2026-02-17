@@ -486,6 +486,7 @@ const Playground = () => {
                 <input type="range" min="0" max="2" step="0.1"
                   value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value))}
                   className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                <p className="text-[10px] text-slate-600 leading-snug">Controls randomness. Low = focused and predictable, high = creative and surprising.</p>
               </div>
 
               <div className="space-y-2">
@@ -496,6 +497,7 @@ const Playground = () => {
                 <input type="range" min="0" max="1" step="0.05"
                   value={topP} onChange={(e) => setTopP(parseFloat(e.target.value))}
                   className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                <p className="text-[10px] text-slate-600 leading-snug">Nucleus sampling. Only picks from the most likely words that add up to this probability. Lower = safer word choices.</p>
               </div>
 
               <div className="space-y-2">
@@ -506,6 +508,7 @@ const Playground = () => {
                 <input type="range" min="0" max="100" step="1"
                   value={topK} onChange={(e) => setTopK(parseInt(e.target.value))}
                   className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                <p className="text-[10px] text-slate-600 leading-snug">Limits each word choice to the top K candidates. 0 = off (no limit). Lower = less variety.</p>
               </div>
 
               <div className="space-y-2">
@@ -516,6 +519,7 @@ const Playground = () => {
                 <input type="range" min="256" max="32768" step="256"
                   value={maxTokens} onChange={(e) => setMaxTokens(parseInt(e.target.value))}
                   className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                <p className="text-[10px] text-slate-600 leading-snug">Maximum length of the response. 1 token ≈ 4 characters. Higher = longer answers allowed.</p>
               </div>
             </div>
           </section>
@@ -541,6 +545,7 @@ const Playground = () => {
                     <input type="range" min="-2" max="2" step="0.1"
                       value={presencePenalty} onChange={(e) => setPresencePenalty(parseFloat(e.target.value))}
                       className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                    <p className="text-[10px] text-slate-600 leading-snug">Encourages the model to talk about new topics. Positive = avoid repeating topics already mentioned.</p>
                   </div>
 
                   <div className="space-y-2">
@@ -551,6 +556,7 @@ const Playground = () => {
                     <input type="range" min="-2" max="2" step="0.1"
                       value={frequencyPenalty} onChange={(e) => setFrequencyPenalty(parseFloat(e.target.value))}
                       className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                    <p className="text-[10px] text-slate-600 leading-snug">Penalizes words based on how often they've already appeared. Higher = less word repetition.</p>
                   </div>
 
                   <div className="space-y-2">
@@ -561,6 +567,7 @@ const Playground = () => {
                     <input type="range" min="0.5" max="2" step="0.05"
                       value={repetitionPenalty} onChange={(e) => setRepetitionPenalty(parseFloat(e.target.value))}
                       className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                    <p className="text-[10px] text-slate-600 leading-snug">Multiplier that discourages repeating any token from the input or output. 1.0 = off, above 1.0 = less repetition.</p>
                   </div>
 
                   <div className="space-y-2">
@@ -570,6 +577,7 @@ const Playground = () => {
                       onChange={(e) => setSeed(e.target.value.replace(/[^0-9]/g, ''))}
                       placeholder="Random (empty)"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono" />
+                    <p className="text-[10px] text-slate-600 leading-snug">Set a number for reproducible results. Same seed + same input = same output every time.</p>
                   </div>
                 </div>
 
@@ -580,6 +588,7 @@ const Playground = () => {
                     onChange={(e) => setStopSequences(e.target.value)}
                     placeholder="e.g. \n\n, END, ###"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono" />
+                  <p className="text-[10px] text-slate-600 leading-snug">The model will stop generating when it produces any of these text patterns.</p>
                 </div>
               </div>
             )}
