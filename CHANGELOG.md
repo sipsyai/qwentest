@@ -3,6 +3,18 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.12.0] - 2026-02-17
+
+### Added
+- RAG template variable `{{context}}`: place RAG chunks anywhere in user prompt
+- Playground: "Template Mode" amber badge when `{{context}}` detected in prompt
+- Playground: hint text below user prompt explaining `{{context}}` usage (visible when RAG enabled)
+- Playground: RAG Config panel shows context injection target (User Prompt template vs System Prompt auto)
+- rag.ts: fallback text "(No relevant context found)" when `{{context}}` used but KB is empty
+
+### Changed
+- rag.ts buildMessages(): supports both template injection (user prompt) and auto injection (system prompt)
+
 ## [0.11.0] - 2026-02-17
 
 ### Added

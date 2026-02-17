@@ -22,12 +22,12 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **embedUtils.ts**: Shared embedding utilities (batch embed with progress, chunked text processing)
 - **settingsApi.ts**: Settings persistence (in-memory cache + PostgreSQL)
 - **historyApi.ts**: Request history persistence (PostgreSQL)
-- **rag.ts**: RAG pipeline (embed query → pgvector search → context injection)
+- **rag.ts**: RAG pipeline (embed query → pgvector search → context injection, `{{context}}` template variable support)
 - **markdown.ts**: Think tag parser + markdown renderer
 - **mockData.ts**: Test/demo verileri
 
 ## Sayfalar
-- **Playground**: Chat arayuzu, streaming, think mode, RAG mode, configurable RAG params (top_k, similarity_threshold sliders)
+- **Playground**: Chat arayuzu, streaming, think mode, RAG mode, configurable RAG params (top_k, similarity_threshold sliders), `{{context}}` template variable for custom RAG chunk placement
 - **Models**: Model listesi ve detaylari
 - **ModelDetail**: Tek model detay sayfasi
 - **Embeddings**: Embedding olusturma + Knowledge Base kaydetme, configurable search params (top_k, similarity_threshold sliders)

@@ -334,7 +334,14 @@ const Playground = () => {
           {/* User Prompt */}
           <section className="flex-1 flex flex-col min-h-[200px]">
             <div className="flex justify-between items-center mb-3">
-              <h3 className="text-sm font-medium text-slate-400">User Prompt</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium text-slate-400">User Prompt</h3>
+                {ragEnabled && prompt.includes('{{context}}') && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-900/30 text-amber-400 border border-amber-900/50">
+                    Template Mode
+                  </span>
+                )}
+              </div>
               <span className="text-xs text-slate-500 font-mono">
                 CHAR: {prompt.length} / TOKEN: ~{Math.ceil(prompt.length / 4)}
               </span>
@@ -345,6 +352,11 @@ const Playground = () => {
               className="w-full flex-1 min-h-[200px] bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 font-mono resize-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 outline-none custom-scrollbar leading-relaxed"
               placeholder="Enter your prompt here..."
             />
+            {ragEnabled && (
+              <p className="mt-2 text-xs text-slate-500">
+                Tip: Use <code className="text-amber-400/80 bg-amber-900/20 px-1.5 py-0.5 rounded font-mono">{'{{context}}'}</code> in your prompt to place RAG chunks exactly where you want.
+              </p>
+            )}
           </section>
 
           {/* Toggles Row */}
@@ -390,7 +402,10 @@ const Playground = () => {
               <div className="flex items-center gap-2">
                 <Search size={14} className="text-amber-400" />
                 <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">RAG Config</span>
-                <span className="text-[10px] text-slate-500 ml-auto">
+                <span className="text-[10px] text-slate-500 ml-auto flex items-center gap-2">
+                  <span className={`px-1.5 py-0.5 rounded ${prompt.includes('{{context}}') ? 'bg-amber-900/30 text-amber-400 border border-amber-900/50' : 'bg-slate-800 text-slate-500'}`}>
+                    {prompt.includes('{{context}}') ? 'Inject → User Prompt (template)' : 'Inject → System Prompt (auto)'}
+                  </span>
                   {ragSources.length === 0 ? 'All sources' : `${ragSources.length} selected`}
                 </span>
               </div>

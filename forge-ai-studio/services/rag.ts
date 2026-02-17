@@ -55,32 +55,49 @@ export const executeRAGPipeline = async (
   return { relevantDocs, augmentedMessages, searchTimeMs, embeddingTimeMs };
 };
 
+const CONTEXT_PLACEHOLDER = '{{context}}';
+
 const buildMessages = (
   systemPrompt: string,
   userPrompt: string,
   docs: SearchResult[]
 ): { role: string; content: string }[] => {
   const messages: { role: string; content: string }[] = [];
+  const hasPlaceholder = userPrompt.includes(CONTEXT_PLACEHOLDER);
+
+  // Build context block from retrieved docs
+  const contextBlock = docs.length > 0
+    ? docs
+        .map((r, i) => {
+          const pct = Math.round(r.similarity * 100);
+          const preview = r.document.text.length > 300
+            ? r.document.text.slice(0, 300) + '...'
+            : r.document.text;
+          return `[${i + 1}] (relevance: ${pct}%) ${preview}`;
+        })
+        .join('\n\n')
+    : '';
 
   let finalSystem = systemPrompt;
-  if (docs.length > 0) {
-    const contextBlock = docs
-      .map((r, i) => {
-        const pct = Math.round(r.similarity * 100);
-        const preview = r.document.text.length > 300
-          ? r.document.text.slice(0, 300) + '...'
-          : r.document.text;
-        return `[${i + 1}] (relevance: ${pct}%) ${preview}`;
-      })
-      .join('\n\n');
+  let finalUser = userPrompt;
 
-    finalSystem = `${systemPrompt}\n\n## Retrieved Context\nThe following information was retrieved from the knowledge base. Use it to provide accurate, grounded answers:\n\n${contextBlock}`;
+  if (docs.length > 0) {
+    if (hasPlaceholder) {
+      // {{context}} found → inject into user prompt, leave system prompt untouched
+      finalUser = userPrompt.replace(CONTEXT_PLACEHOLDER, contextBlock);
+    } else {
+      // No {{context}} → existing behavior (append to system prompt)
+      finalSystem = `${systemPrompt}\n\n## Retrieved Context\nThe following information was retrieved from the knowledge base. Use it to provide accurate, grounded answers:\n\n${contextBlock}`;
+    }
+  } else if (hasPlaceholder) {
+    // No docs but placeholder exists → clean up with fallback text
+    finalUser = userPrompt.replace(CONTEXT_PLACEHOLDER, '(No relevant context found)');
   }
 
   if (finalSystem.trim()) {
     messages.push({ role: 'system', content: finalSystem });
   }
-  messages.push({ role: 'user', content: userPrompt });
+  messages.push({ role: 'user', content: finalUser });
 
   return messages;
 };
