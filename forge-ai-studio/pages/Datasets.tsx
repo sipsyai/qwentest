@@ -1,609 +1,745 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Database, Link as LinkIcon, Lock, RefreshCw, TableProperties,
-  AlertCircle, CheckCircle2, ChevronRight, Plus, Send,
-  CheckSquare, Square, X, Code, FileJson, Download, Loader2, Trash2
+  Database, Plus, Pencil, Trash2, RefreshCw, ChevronRight, ChevronDown,
+  AlertCircle, CheckCircle2, Globe, Lock, Send, Save, X, Loader2,
+  CheckSquare, Square, ArrowLeft, Braces, List
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { generateEmbeddings, fetchEmbedModels } from '../services/vllm';
-import { addDocuments, getDocumentCount, clearAll } from '../services/kbApi';
-import { getDsApiUrl, getDsApiToken, getDsEndpoint, updateSettings } from '../services/settingsApi';
+import {
+  getDatasets, createDataset, updateDataset, deleteDataset,
+  fetchDatasetUrl, saveDatasetRecords,
+  Dataset, DatasetCreate, DatasetUpdate
+} from '../services/datasetsApi';
 
-const PRESET_ENDPOINTS = [
-  { label: 'Knowledge Bases', value: 'knowledge-bases' },
-  { label: 'Services', value: 'services' },
-  { label: 'AI Prompts', value: 'ai-prompts' },
-  { label: 'Tags', value: 'tags' },
-];
+// --- Header Key-Value Pair ---
+interface HeaderPair {
+  key: string;
+  value: string;
+}
 
 const Datasets = () => {
-  const navigate = useNavigate();
+  // Dataset list
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editingDataset, setEditingDataset] = useState<Dataset | null>(null);
 
-  // Configuration State
-  const [apiUrl, setApiUrl] = useState(getDsApiUrl());
-  const [apiToken, setApiToken] = useState(getDsApiToken());
-  const [endpoint, setEndpoint] = useState(getDsEndpoint());
-  const [isCustomEndpoint, setIsCustomEndpoint] = useState(false);
+  // Form fields
+  const [formName, setFormName] = useState('');
+  const [formUrl, setFormUrl] = useState('');
+  const [formMethod, setFormMethod] = useState('GET');
+  const [formToken, setFormToken] = useState('');
+  const [formHeaders, setFormHeaders] = useState<HeaderPair[]>([]);
+  const [formSaving, setFormSaving] = useState(false);
 
-  // Data State
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastFetched, setLastFetched] = useState<string | null>(null);
-  const [paginationMeta, setPaginationMeta] = useState<{ total: number; page: number; pageSize: number } | null>(null);
+  // Explorer state
+  const [fetchedJson, setFetchedJson] = useState<any>(null);
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchElapsed, setFetchElapsed] = useState<number | null>(null);
+  const [jsonPath, setJsonPath] = useState<string[]>([]);
+  const [selectedRowIndices, setSelectedRowIndices] = useState<Set<number>>(new Set());
+  const [savingRecords, setSavingRecords] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
-  // Interaction State
-  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [viewJsonItem, setViewJsonItem] = useState<any | null>(null);
-
-  const [newItemJson, setNewItemJson] = useState('{\n  "data": {\n    "title": "New Article",\n    "content": "Content goes here..."\n  }\n}');
-  const [addStatus, setAddStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
-
-  // Embed & Save state
-  const [embedSaving, setEmbedSaving] = useState(false);
-  const [embedSuccess, setEmbedSuccess] = useState<string | null>(null);
-  const [embedModel, setEmbedModel] = useState('');
-  const [kbDocCount, setKbDocCount] = useState(0);
-
-  // Load embed models
+  // Load datasets on mount
   useEffect(() => {
-    fetchEmbedModels().then(models => {
-      if (models.length > 0) setEmbedModel(models[0]);
-    });
+    loadDatasets();
   }, []);
 
-  // Poll KB doc count
-  useEffect(() => {
-    getDocumentCount().then(setKbDocCount);
-    const interval = setInterval(() => { getDocumentCount().then(setKbDocCount); }, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Check if endpoint is custom
-  useEffect(() => {
-    setIsCustomEndpoint(!PRESET_ENDPOINTS.some(p => p.value === endpoint));
-  }, [endpoint]);
-
-  const saveConfig = () => {
-    updateSettings({ ds_api_url: apiUrl, ds_api_token: apiToken, ds_endpoint: endpoint });
-  };
-
-  const getFullUrl = () => {
-    const baseUrl = apiUrl.replace(/\/$/, '');
-    const path = endpoint.replace(/^\//, '');
-    return `${baseUrl}/${path}`;
-  };
-
-  const getHeaders = () => {
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-    if (apiToken) headers['Authorization'] = `Bearer ${apiToken}`;
-    return headers;
-  };
-
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    setSelectedIds(new Set());
-    setPaginationMeta(null);
-    saveConfig();
-
+  const loadDatasets = async () => {
     try {
-      const url = `${getFullUrl()}?pagination[pageSize]=1000`;
-      const response = await fetch(url, { method: 'GET', headers: getHeaders() });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
-
-      const jsonData = await response.json();
-
-      // Extract pagination meta if available (Strapi v4)
-      if (jsonData.meta?.pagination) {
-        setPaginationMeta({
-          total: jsonData.meta.pagination.total,
-          page: jsonData.meta.pagination.page,
-          pageSize: jsonData.meta.pagination.pageSize,
-        });
-      }
-
-      // Strapi v4 Intelligence: Automatically unwrap { data: [ { id, attributes: {} } ] }
-      let processedData = [];
-
-      if (jsonData.data && Array.isArray(jsonData.data)) {
-        processedData = jsonData.data.map((item: any) => {
-          if (item.attributes) {
-            return { id: item.id, ...item.attributes, _raw: item };
-          }
-          return { ...item, id: item.id || Math.random().toString(36).substr(2, 9) };
-        });
-      } else if (Array.isArray(jsonData)) {
-        processedData = jsonData.map(item => ({...item, id: item.id || Math.random().toString(36).substr(2, 9)}));
-      } else if (typeof jsonData === 'object') {
-        processedData = [{ ...jsonData, id: jsonData.id || '1' }];
-      }
-
-      setData(processedData);
-      setLastFetched(new Date().toLocaleTimeString());
+      const result = await getDatasets();
+      setDatasets(result.data);
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch data');
-      setData([]);
-    } finally {
-      setLoading(false);
+      console.error('Failed to load datasets:', err);
     }
   };
 
-  const handleAddItem = async () => {
-    setAddStatus('sending');
+  // --- Form Handlers ---
+
+  const resetForm = () => {
+    setFormName('');
+    setFormUrl('');
+    setFormMethod('GET');
+    setFormToken('');
+    setFormHeaders([]);
+    setEditingDataset(null);
+    setShowForm(false);
+  };
+
+  const openCreateForm = () => {
+    resetForm();
+    setShowForm(true);
+  };
+
+  const openEditForm = (ds: Dataset) => {
+    setEditingDataset(ds);
+    setFormName(ds.name);
+    setFormUrl(ds.url);
+    setFormMethod(ds.method);
+    setFormToken(ds.token);
+    setFormHeaders(
+      Object.entries(ds.headers || {}).map(([key, value]) => ({ key, value }))
+    );
+    setShowForm(true);
+  };
+
+  const handleSaveDataset = async () => {
+    if (!formName.trim() || !formUrl.trim()) return;
+    setFormSaving(true);
+
+    const headersObj: Record<string, string> = {};
+    formHeaders.forEach(h => {
+      if (h.key.trim()) headersObj[h.key.trim()] = h.value;
+    });
+
     try {
-      const payload = JSON.parse(newItemJson);
-
-      const response = await fetch(getFullUrl(), {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Failed: ${response.status} - ${errText.substring(0, 100)}`);
+      if (editingDataset) {
+        const updates: DatasetUpdate = {
+          name: formName.trim(),
+          url: formUrl.trim(),
+          method: formMethod,
+          token: formToken,
+          headers: headersObj,
+        };
+        const updated = await updateDataset(editingDataset.id, updates);
+        setDatasets(prev => prev.map(d => d.id === updated.id ? updated : d));
+        if (selectedDataset?.id === updated.id) setSelectedDataset(updated);
+      } else {
+        const payload: DatasetCreate = {
+          name: formName.trim(),
+          url: formUrl.trim(),
+          method: formMethod,
+          token: formToken,
+          headers: headersObj,
+        };
+        const created = await createDataset(payload);
+        setDatasets(prev => [created, ...prev]);
       }
-
-      setAddStatus('success');
-      setTimeout(() => {
-        setAddStatus('idle');
-        setIsAddModalOpen(false);
-        fetchData();
-      }, 1000);
-    } catch (e: any) {
-      alert(`Error adding item: ${e.message}`);
-      setAddStatus('error');
+      resetForm();
+    } catch (err: any) {
+      console.error('Save dataset failed:', err);
+    } finally {
+      setFormSaving(false);
     }
   };
 
-  const toggleSelect = (id: string | number) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedIds(newSet);
+  const handleDeleteDataset = async (ds: Dataset) => {
+    try {
+      await deleteDataset(ds.id);
+      setDatasets(prev => prev.filter(d => d.id !== ds.id));
+      if (selectedDataset?.id === ds.id) {
+        setSelectedDataset(null);
+        setFetchedJson(null);
+        setJsonPath([]);
+      }
+    } catch (err: any) {
+      console.error('Delete dataset failed:', err);
+    }
+  };
+
+  // --- Fetch & Explore ---
+
+  const handleFetch = async (ds: Dataset) => {
+    setSelectedDataset(ds);
+    setFetchedJson(null);
+    setFetchError(null);
+    setFetchElapsed(null);
+    setJsonPath([]);
+    setSelectedRowIndices(new Set());
+    setFetchLoading(true);
+
+    try {
+      const result = await fetchDatasetUrl(ds.id);
+      setFetchedJson(result.data);
+      setFetchElapsed(result.elapsed_ms);
+    } catch (err: any) {
+      setFetchError(err.message || 'Fetch failed');
+    } finally {
+      setFetchLoading(false);
+    }
+  };
+
+  // Drill-down logic
+  const currentNode = useMemo(() => {
+    if (fetchedJson === null || fetchedJson === undefined) return null;
+    let node = fetchedJson;
+    for (const key of jsonPath) {
+      if (node === null || node === undefined) return null;
+      node = node[key];
+    }
+    return node;
+  }, [fetchedJson, jsonPath]);
+
+  const drillInto = useCallback((key: string) => {
+    setJsonPath(prev => [...prev, key]);
+    setSelectedRowIndices(new Set());
+  }, []);
+
+  const navigateTo = useCallback((depth: number) => {
+    setJsonPath(prev => prev.slice(0, depth));
+    setSelectedRowIndices(new Set());
+  }, []);
+
+  // Determine node type
+  const nodeType = useMemo(() => {
+    if (currentNode === null || currentNode === undefined) return 'empty';
+    if (Array.isArray(currentNode)) {
+      if (currentNode.length > 0 && typeof currentNode[0] === 'object' && currentNode[0] !== null) {
+        return 'array_of_objects';
+      }
+      return 'array_of_primitives';
+    }
+    if (typeof currentNode === 'object') return 'object';
+    return 'primitive';
+  }, [currentNode]);
+
+  // Table columns for array of objects
+  const tableColumns = useMemo(() => {
+    if (nodeType !== 'array_of_objects' || !Array.isArray(currentNode)) return [];
+    const allKeys = new Set<string>();
+    currentNode.slice(0, 20).forEach((item: any) => {
+      if (item && typeof item === 'object') {
+        Object.keys(item).forEach(k => allKeys.add(k));
+      }
+    });
+    return Array.from(allKeys);
+  }, [currentNode, nodeType]);
+
+  // Row selection
+  const toggleRowSelect = (idx: number) => {
+    setSelectedRowIndices(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === data.length) {
-      setSelectedIds(new Set());
+    if (!Array.isArray(currentNode)) return;
+    if (selectedRowIndices.size === currentNode.length) {
+      setSelectedRowIndices(new Set());
     } else {
-      setSelectedIds(new Set(data.map(d => d.id)));
+      setSelectedRowIndices(new Set(currentNode.map((_: any, i: number) => i)));
     }
   };
 
-  const handleSendToEmbeddings = () => {
-    const selectedItems = data.filter(d => selectedIds.has(d.id));
-    const textContent = selectedItems.map(extractTextFromItem).join('\n\n');
-    navigate('/embeddings', { state: { initialInput: textContent } });
-  };
+  // Save selected records
+  const handleSaveSelected = async () => {
+    if (!selectedDataset || !Array.isArray(currentNode) || selectedRowIndices.size === 0) return;
 
-  const handleDownloadJson = () => {
-    const items = selectedIds.size > 0
-      ? data.filter(d => selectedIds.has(d.id))
-      : data;
-    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `dataset_${endpoint}_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const extractTextFromItem = (item: any): string => {
-    const skipKeys = new Set([
-      'id', '_raw', 'created_at', 'updated_at', 'createdAt', 'updatedAt',
-      'publishedAt', 'documentId', 'locale',
-    ]);
-
-    const parts: string[] = [];
-    for (const [key, value] of Object.entries(item)) {
-      if (skipKeys.has(key)) continue;
-      if (value === null || value === undefined) continue;
-      if (typeof value === 'object') continue;
-      const str = String(value).trim();
-      if (str) parts.push(`${key}: ${str}`);
-    }
-
-    return parts.length > 0 ? parts.join('\n') : JSON.stringify(item);
-  };
-
-  const handleEmbedAndSave = async () => {
-    if (!embedModel) {
-      setError('No embedding model available. Check Settings.');
-      return;
-    }
-
-    const items = selectedIds.size > 0
-      ? data.filter(d => selectedIds.has(d.id))
-      : data;
-
-    if (items.length === 0) {
-      setError('No data to embed. Fetch data first.');
-      return;
-    }
-
-    setEmbedSaving(true);
-    setEmbedSuccess(null);
-    setError(null);
+    setSavingRecords(true);
+    setSaveSuccess(null);
 
     try {
-      const texts = items.map(extractTextFromItem);
+      const pathStr = '$' + (jsonPath.length > 0 ? '.' + jsonPath.join('.') : '');
+      const records = Array.from(selectedRowIndices).map((idx: number) => ({
+        dataset_id: selectedDataset.id,
+        data: (currentNode as any[])[idx],
+        json_path: `${pathStr}[${idx}]`,
+        label: `${selectedDataset.name} - Row ${idx}`,
+      }));
 
-      // Batch in groups of 32 to avoid overloading
-      const batchSize = 32;
-      let totalSaved = 0;
-      let totalSent = 0;
-
-      for (let i = 0; i < texts.length; i += batchSize) {
-        const batch = texts.slice(i, i + batchSize);
-        const response = await generateEmbeddings(embedModel, batch);
-
-        const docs = response.data.map((d, idx) => ({
-          text: batch[idx],
-          embedding: d.embedding,
-          source: 'dataset' as const,
-          sourceLabel: `${endpoint} #${items[i + idx]?.id || idx}`,
-        }));
-
-        const inserted = await addDocuments(docs, embedModel);
-        totalSaved += inserted;
-        totalSent += docs.length;
-      }
-
-      setKbDocCount(await getDocumentCount());
-      const skipped = totalSent - totalSaved;
-      const msg = skipped > 0
-        ? `Saved ${totalSaved} documents (${skipped} duplicates skipped)`
-        : `Saved ${totalSaved} documents to Knowledge Base!`;
-      setEmbedSuccess(msg);
-      setTimeout(() => setEmbedSuccess(null), 4000);
+      const count = await saveDatasetRecords(records);
+      setSaveSuccess(`Saved ${count} records`);
+      setSelectedRowIndices(new Set());
+      setTimeout(() => setSaveSuccess(null), 3000);
     } catch (err: any) {
-      setError(`Embed failed: ${err.message}`);
+      setFetchError(`Save failed: ${err.message}`);
     } finally {
-      setEmbedSaving(false);
+      setSavingRecords(false);
     }
   };
 
-  const handleClearKB = async () => {
-    await clearAll();
-    setKbDocCount(0);
+  // --- Render Helpers ---
+
+  const renderValue = (val: any): string => {
+    if (val === null) return 'null';
+    if (val === undefined) return 'undefined';
+    if (typeof val === 'object') return Array.isArray(val) ? `Array[${val.length}]` : `Object{${Object.keys(val).length}}`;
+    return String(val);
   };
 
-  // Get table headers dynamically from the first item
-  const getTableHeaders = () => {
-    if (data.length === 0) return [];
-    return Object.keys(data[0]).filter(key => {
-      const val = data[0][key];
-      return key !== '_raw' && (typeof val !== 'object' || val === null);
-    }).slice(0, 5);
+  const isNavigable = (val: any): boolean => {
+    return val !== null && val !== undefined && typeof val === 'object';
   };
 
   return (
-    <div className="h-screen bg-slate-950 flex overflow-hidden relative">
+    <div className="h-screen bg-slate-950 flex overflow-hidden">
 
-      {/* Add Item Modal */}
-      {isAddModalOpen && (
-        <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-8">
-           <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-full animate-in fade-in zoom-in duration-200">
-              <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
-                <div>
-                   <h3 className="text-xl font-bold text-white">Add New Record</h3>
-                   <p className="text-slate-400 text-xs mt-1">POST to <code className="bg-slate-800 px-1 py-0.5 rounded text-blue-400">{getFullUrl()}</code></p>
-                </div>
-                <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-white transition-colors"><X size={24}/></button>
-              </div>
-              <div className="p-6 flex-1 overflow-y-auto">
-                 <label className="block text-sm font-medium text-slate-300 mb-2">JSON Payload</label>
-                 <div className="relative h-64">
-                   <textarea
-                     value={newItemJson}
-                     onChange={(e) => setNewItemJson(e.target.value)}
-                     className="w-full h-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm font-mono text-emerald-400 focus:ring-2 focus:ring-blue-500 outline-none resize-none leading-relaxed"
-                   />
-                   <div className="absolute top-2 right-2 text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded border border-slate-700 pointer-events-none">
-                     JSON
-                   </div>
-                 </div>
-                 <p className="text-xs text-slate-500 mt-2">
-                   * For Strapi v4, ensure you wrap attributes in a <code>"data"</code> object.
-                 </p>
-              </div>
-              <div className="p-6 border-t border-slate-800 flex justify-end gap-3 bg-slate-800/50 rounded-b-2xl">
-                 <button onClick={() => setIsAddModalOpen(false)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
-                 <button
-                   onClick={handleAddItem}
-                   disabled={addStatus === 'sending'}
-                   className={`px-6 py-2 rounded-lg font-bold flex items-center gap-2 transition-all ${
-                     addStatus === 'success' ? 'bg-emerald-600 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white'
-                   }`}
-                 >
-                   {addStatus === 'sending' ? <RefreshCw className="animate-spin" size={18} /> :
-                    addStatus === 'success' ? <CheckCircle2 size={18} /> : <Plus size={18} />}
-                   {addStatus === 'sending' ? 'Sending...' : addStatus === 'success' ? 'Added!' : 'Add Record'}
-                 </button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* View JSON Modal */}
-      {viewJsonItem && (
-        <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-8">
-           <div className="bg-slate-900 border border-slate-700 w-full max-w-3xl rounded-2xl shadow-2xl flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-200">
-              <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
-                <div className="flex items-center gap-2">
-                   <FileJson size={20} className="text-blue-400" />
-                   <h3 className="text-lg font-bold text-white">Raw Object Data</h3>
-                </div>
-                <button onClick={() => setViewJsonItem(null)} className="text-slate-400 hover:text-white transition-colors"><X size={20}/></button>
-              </div>
-              <div className="flex-1 overflow-auto bg-[#0B1120] p-0 relative">
-                 <pre className="text-sm font-mono text-blue-300 p-6 leading-relaxed">
-                   {JSON.stringify(viewJsonItem, null, 2)}
-                 </pre>
-                 <button
-                    onClick={() => {
-                        navigator.clipboard.writeText(JSON.stringify(viewJsonItem, null, 2));
-                    }}
-                    className="absolute top-4 right-4 p-2 bg-slate-800 text-slate-400 hover:text-white rounded border border-slate-700 transition-colors"
-                    title="Copy to Clipboard"
-                 >
-                    <Code size={16} />
-                 </button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* Left Panel: Configuration */}
+      {/* LEFT PANEL: Dataset List + Form */}
       <div className="w-[340px] border-r border-slate-800 flex flex-col bg-slate-900/30">
-        <div className="p-6 border-b border-slate-800">
-           <h1 className="text-xl font-bold text-white mb-1">Dataset Connect</h1>
-           <p className="text-slate-400 text-xs">Connect to external CMS or APIs.</p>
+
+        {/* Header */}
+        <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-white mb-1">Datasets</h1>
+            <p className="text-slate-400 text-xs">Connect to any REST API</p>
+          </div>
+          <button
+            onClick={openCreateForm}
+            className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+            title="Add Dataset"
+          >
+            <Plus size={18} />
+          </button>
         </div>
 
-        <div className="p-6 flex-1 flex flex-col gap-6 overflow-y-auto">
-           <div className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Configuration</label>
-                <div className="space-y-3">
-                   <div>
-                      <label className="text-xs text-slate-400 block mb-1">API Base URL</label>
-                      <input
-                        type="text"
-                        value={apiUrl}
-                        onChange={(e) => setApiUrl(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none font-mono"
-                      />
-                   </div>
-                   <div>
-                      <label className="text-xs text-slate-400 block mb-1">Endpoint</label>
-                      <div className="flex flex-wrap gap-1.5 mb-2">
-                        {PRESET_ENDPOINTS.map(p => (
-                          <button
-                            key={p.value}
-                            onClick={() => { setEndpoint(p.value); setIsCustomEndpoint(false); }}
-                            className={`px-2 py-1 text-[10px] font-bold rounded transition-colors ${
-                              endpoint === p.value
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
-                            }`}
-                          >
-                            {p.label}
-                          </button>
-                        ))}
-                        <button
-                          onClick={() => { setIsCustomEndpoint(true); setEndpoint(''); }}
-                          className={`px-2 py-1 text-[10px] font-bold rounded transition-colors ${
-                            isCustomEndpoint
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
-                          }`}
-                        >
-                          Custom...
-                        </button>
-                      </div>
-                      {isCustomEndpoint && (
-                        <input
-                          type="text"
-                          value={endpoint}
-                          onChange={(e) => setEndpoint(e.target.value)}
-                          placeholder="e.g. articles"
-                          className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none font-mono"
-                        />
-                      )}
-                   </div>
-                   <div>
-                      <label className="text-xs text-slate-400 block mb-1">Bearer Token</label>
-                      <input
-                        type="password"
-                        value={apiToken}
-                        onChange={(e) => setApiToken(e.target.value)}
-                        placeholder="Optional (public APIs)"
-                        className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none font-mono"
-                      />
-                   </div>
+        {/* Dataset Form (inline) */}
+        {showForm && (
+          <div className="p-4 border-b border-slate-800 bg-slate-800/30 space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-bold text-slate-400 uppercase">
+                {editingDataset ? 'Edit Dataset' : 'New Dataset'}
+              </span>
+              <button onClick={resetForm} className="text-slate-500 hover:text-white transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+
+            <input
+              type="text"
+              placeholder="Dataset Name"
+              value={formName}
+              onChange={e => setFormName(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none"
+            />
+
+            <input
+              type="text"
+              placeholder="https://api.example.com/data"
+              value={formUrl}
+              onChange={e => setFormUrl(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none font-mono"
+            />
+
+            <div className="flex gap-2">
+              {['GET', 'POST'].map(m => (
+                <button
+                  key={m}
+                  onClick={() => setFormMethod(m)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded transition-colors ${
+                    formMethod === m
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+
+            <input
+              type="password"
+              placeholder="Bearer Token (optional)"
+              value={formToken}
+              onChange={e => setFormToken(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none font-mono"
+            />
+
+            {/* Headers */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Headers</span>
+                <button
+                  onClick={() => setFormHeaders(prev => [...prev, { key: '', value: '' }])}
+                  className="text-[10px] text-blue-400 hover:text-blue-300"
+                >
+                  + Add
+                </button>
+              </div>
+              {formHeaders.map((h, i) => (
+                <div key={i} className="flex gap-1 mb-1">
+                  <input
+                    type="text"
+                    placeholder="Key"
+                    value={h.key}
+                    onChange={e => {
+                      const copy = [...formHeaders];
+                      copy[i] = { ...copy[i], key: e.target.value };
+                      setFormHeaders(copy);
+                    }}
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[10px] text-white outline-none font-mono"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Value"
+                    value={h.value}
+                    onChange={e => {
+                      const copy = [...formHeaders];
+                      copy[i] = { ...copy[i], value: e.target.value };
+                      setFormHeaders(copy);
+                    }}
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[10px] text-white outline-none font-mono"
+                  />
+                  <button
+                    onClick={() => setFormHeaders(prev => prev.filter((_, j) => j !== i))}
+                    className="text-slate-600 hover:text-red-400 px-1"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={handleSaveDataset}
+              disabled={formSaving || !formName.trim() || !formUrl.trim()}
+              className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {formSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              {editingDataset ? 'Update' : 'Create'}
+            </button>
+          </div>
+        )}
+
+        {/* Dataset Cards */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {datasets.length === 0 ? (
+            <div className="text-center py-12 text-slate-600">
+              <Database size={32} className="mx-auto mb-3 opacity-50" />
+              <p className="text-sm text-slate-500">No datasets yet</p>
+              <p className="text-xs text-slate-600 mt-1">Click + to add one</p>
+            </div>
+          ) : (
+            datasets.map(ds => (
+              <div
+                key={ds.id}
+                className={`p-3 rounded-xl border cursor-pointer transition-all group ${
+                  selectedDataset?.id === ds.id
+                    ? 'bg-blue-900/20 border-blue-800/50'
+                    : 'bg-slate-900/50 border-slate-800 hover:border-slate-700'
+                }`}
+                onClick={() => handleFetch(ds)}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-bold text-white truncate">{ds.name}</h3>
+                    <p className="text-[10px] text-slate-500 font-mono truncate mt-0.5">{ds.url}</p>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                    <button
+                      onClick={e => { e.stopPropagation(); openEditForm(ds); }}
+                      className="p-1 text-slate-500 hover:text-blue-400 rounded transition-colors"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDeleteDataset(ds); }}
+                      className="p-1 text-slate-500 hover:text-red-400 rounded transition-colors"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                    ds.method === 'POST' ? 'bg-amber-900/30 text-amber-400' : 'bg-emerald-900/30 text-emerald-400'
+                  }`}>
+                    {ds.method}
+                  </span>
+                  {ds.token && (
+                    <span className="flex items-center gap-0.5 text-[9px] text-slate-500">
+                      <Lock size={8} /> Auth
+                    </span>
+                  )}
                 </div>
               </div>
-           </div>
-
-           <div className="mt-auto pt-4 border-t border-slate-800 space-y-3">
-             {error && (
-                <div className="p-2 bg-red-900/20 border border-red-900/50 rounded text-red-200 text-xs flex items-start gap-2 break-all">
-                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                  {error}
-                </div>
-             )}
-
-             {embedSuccess && (
-                <div className="p-2 bg-emerald-900/20 border border-emerald-900/50 rounded text-emerald-200 text-xs flex items-center gap-2">
-                  <CheckCircle2 size={14} className="shrink-0" />
-                  {embedSuccess}
-                </div>
-             )}
-
-             <button
-               onClick={fetchData}
-               disabled={loading}
-               className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-all border border-slate-700"
-             >
-               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-               Sync Data
-             </button>
-
-             {/* KB Status */}
-             <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-800">
-               <span className="flex items-center gap-1.5">
-                 <Database size={12} className={kbDocCount > 0 ? 'text-amber-400' : 'text-slate-600'} />
-                 Knowledge Base: {kbDocCount} docs
-               </span>
-               {kbDocCount > 0 && (
-                 <button
-                   onClick={handleClearKB}
-                   className="text-red-400/70 hover:text-red-400 flex items-center gap-1 transition-colors"
-                 >
-                   <Trash2 size={10} /> Clear
-                 </button>
-               )}
-             </div>
-           </div>
+            ))
+          )}
         </div>
       </div>
 
-      {/* Right Panel: Data Explorer */}
+      {/* RIGHT PANEL: JSON Explorer */}
       <div className="flex-1 bg-slate-950 flex flex-col min-w-0">
 
-        {/* Toolbar */}
-        <div className="h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-900/20 backdrop-blur-sm sticky top-0 z-10">
-           <div className="flex items-center gap-4">
-             <div className="flex items-center gap-2 text-slate-200 font-bold">
-               <Database size={18} className="text-blue-500" />
-               Object Explorer
-             </div>
-             <div className="h-4 w-px bg-slate-800"></div>
-             <span className="text-xs text-slate-500">
-               {paginationMeta
-                 ? `Showing ${data.length} of ${paginationMeta.total} records`
-                 : `${data.length} records loaded`}
-             </span>
-             {selectedIds.size > 0 && (
-               <span className="text-xs font-bold text-blue-400 bg-blue-900/20 px-2 py-0.5 rounded border border-blue-900/30 animate-in fade-in">
-                 {selectedIds.size} selected
-               </span>
-             )}
-           </div>
+        {/* Breadcrumb Bar */}
+        <div className="h-14 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-900/20 shrink-0">
+          <div className="flex items-center gap-1 text-sm min-w-0 overflow-x-auto">
+            <button
+              onClick={() => navigateTo(0)}
+              className={`px-2 py-1 rounded text-xs font-bold transition-colors shrink-0 ${
+                jsonPath.length === 0
+                  ? 'text-blue-400 bg-blue-900/20'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              $root
+            </button>
+            {jsonPath.map((seg, i) => (
+              <React.Fragment key={i}>
+                <ChevronRight size={12} className="text-slate-600 shrink-0" />
+                <button
+                  onClick={() => navigateTo(i + 1)}
+                  className={`px-2 py-1 rounded text-xs font-bold transition-colors shrink-0 ${
+                    i === jsonPath.length - 1
+                      ? 'text-blue-400 bg-blue-900/20'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {seg}
+                </button>
+              </React.Fragment>
+            ))}
 
-           <div className="flex items-center gap-2">
-             <button
-                onClick={handleDownloadJson}
-                disabled={data.length === 0}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-slate-700"
-                title={selectedIds.size > 0 ? `Download ${selectedIds.size} selected` : 'Download all'}
-             >
-               <Download size={13} /> JSON
-             </button>
-             <button
-                onClick={handleEmbedAndSave}
-                disabled={data.length === 0 || embedSaving || !embedModel}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-white bg-amber-600 rounded-lg hover:bg-amber-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-amber-900/20"
-                title={selectedIds.size > 0 ? `Embed ${selectedIds.size} selected → KB` : 'Embed all → KB'}
-             >
-               {embedSaving ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />}
-               {embedSaving ? 'Embedding...' : 'Embed & Save to KB'}
-             </button>
-             <button
-                onClick={handleSendToEmbeddings}
-                disabled={selectedIds.size === 0}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-900/20"
-             >
-               <Send size={13} /> Embeddings
-             </button>
-             <button
-                onClick={() => setIsAddModalOpen(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-900 bg-white rounded-lg hover:bg-slate-200 transition-colors shadow-lg shadow-white/10"
-             >
-               <Plus size={13} /> Add
-             </button>
-           </div>
+            {fetchElapsed !== null && (
+              <>
+                <div className="h-4 w-px bg-slate-800 mx-2 shrink-0" />
+                <span className="text-[10px] text-slate-600 shrink-0">{fetchElapsed}ms</span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 ml-4">
+            {selectedRowIndices.size > 0 && (
+              <span className="text-xs font-bold text-blue-400 bg-blue-900/20 px-2 py-0.5 rounded border border-blue-900/30">
+                {selectedRowIndices.size} selected
+              </span>
+            )}
+
+            {saveSuccess && (
+              <span className="text-xs text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 size={12} /> {saveSuccess}
+              </span>
+            )}
+
+            {nodeType === 'array_of_objects' && selectedRowIndices.size > 0 && (
+              <button
+                onClick={handleSaveSelected}
+                disabled={savingRecords}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition-colors disabled:opacity-50"
+              >
+                {savingRecords ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                Save Selected
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Content Table */}
-        <div className="flex-1 overflow-auto p-0">
+        {/* Explorer Content */}
+        <div className="flex-1 overflow-auto">
 
-          {data.length > 0 ? (
+          {/* Loading */}
+          {fetchLoading && (
+            <div className="h-full flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 size={32} className="text-blue-500 animate-spin" />
+                <span className="text-sm text-slate-400">Fetching data...</span>
+              </div>
+            </div>
+          )}
+
+          {/* Error */}
+          {fetchError && !fetchLoading && (
+            <div className="p-6">
+              <div className="p-4 bg-red-900/20 border border-red-900/50 rounded-xl text-red-200 text-sm flex items-start gap-3">
+                <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-bold mb-1">Fetch Error</p>
+                  <p className="text-xs text-red-300/80 break-all">{fetchError}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!fetchLoading && !fetchError && fetchedJson === null && (
+            <div className="h-full flex flex-col items-center justify-center text-slate-600">
+              <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center mb-4 border border-slate-800">
+                <Globe size={32} className="opacity-50" />
+              </div>
+              <p className="text-sm font-medium text-slate-400">Select a dataset to fetch</p>
+              <p className="text-xs mt-2 text-slate-500 max-w-xs text-center leading-relaxed">
+                Click on a dataset card to fetch its data, then explore the JSON response with drill-down navigation.
+              </p>
+            </div>
+          )}
+
+          {/* Object View */}
+          {!fetchLoading && fetchedJson !== null && nodeType === 'object' && (
+            <div className="divide-y divide-slate-800/50">
+              {Object.entries(currentNode as Record<string, any>).map(([key, val]) => (
+                <div
+                  key={key}
+                  className={`flex items-center px-6 py-3 text-sm ${
+                    isNavigable(val)
+                      ? 'cursor-pointer hover:bg-slate-800/30'
+                      : ''
+                  }`}
+                  onClick={() => isNavigable(val) && drillInto(key)}
+                >
+                  <span className="w-48 shrink-0 text-slate-400 font-mono text-xs truncate">{key}</span>
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    {isNavigable(val) ? (
+                      <>
+                        <span className="text-blue-400 text-xs font-bold">
+                          {Array.isArray(val)
+                            ? <span className="flex items-center gap-1"><List size={12} /> Array[{val.length}]</span>
+                            : <span className="flex items-center gap-1"><Braces size={12} /> Object{`{${Object.keys(val).length}}`}</span>
+                          }
+                        </span>
+                        <ChevronRight size={14} className="text-slate-600" />
+                      </>
+                    ) : (
+                      <span className={`text-xs font-mono truncate ${
+                        val === null ? 'text-slate-600 italic' :
+                        typeof val === 'number' ? 'text-amber-400' :
+                        typeof val === 'boolean' ? 'text-purple-400' :
+                        'text-slate-300'
+                      }`}>
+                        {renderValue(val)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Array of Objects → Table View */}
+          {!fetchLoading && fetchedJson !== null && nodeType === 'array_of_objects' && Array.isArray(currentNode) && (
             <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="bg-slate-900 text-slate-400 font-medium uppercase text-xs border-b border-slate-800 sticky top-0 z-10 shadow-sm">
+              <thead className="bg-slate-900 text-slate-400 font-medium uppercase text-xs border-b border-slate-800 sticky top-0 z-10">
                 <tr>
-                  <th className="px-6 py-3 w-10 text-center">
+                  <th className="px-4 py-3 w-10 text-center">
                     <button onClick={toggleSelectAll} className="hover:text-white transition-colors">
-                      {selectedIds.size > 0 && selectedIds.size === data.length ? <CheckSquare size={16} /> : <Square size={16} />}
+                      {selectedRowIndices.size > 0 && selectedRowIndices.size === currentNode.length
+                        ? <CheckSquare size={16} />
+                        : <Square size={16} />
+                      }
                     </button>
                   </th>
-                  {getTableHeaders().map(header => (
-                    <th key={header} className="px-6 py-3">{header}</th>
+                  <th className="px-4 py-3 w-12">#</th>
+                  {tableColumns.slice(0, 8).map(col => (
+                    <th key={col} className="px-4 py-3">{col}</th>
                   ))}
-                  <th className="px-6 py-3 text-right">Raw</th>
+                  <th className="px-4 py-3 w-10"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {data.map((row) => (
+                {currentNode.map((item: any, idx: number) => (
                   <tr
-                    key={row.id}
-                    className={`transition-colors group ${selectedIds.has(row.id) ? 'bg-blue-900/10 hover:bg-blue-900/20' : 'hover:bg-slate-800/30'}`}
-                    onClick={(e) => {
-                        if ((e.target as HTMLElement).tagName !== 'BUTTON') {
-                           toggleSelect(row.id);
-                        }
-                    }}
+                    key={idx}
+                    className={`transition-colors group ${
+                      selectedRowIndices.has(idx)
+                        ? 'bg-blue-900/10 hover:bg-blue-900/20'
+                        : 'hover:bg-slate-800/30'
+                    }`}
+                    onClick={() => toggleRowSelect(idx)}
                   >
-                    <td className="px-6 py-4 text-center cursor-pointer">
-                       <div className={`transition-colors ${selectedIds.has(row.id) ? 'text-blue-400' : 'text-slate-600 group-hover:text-slate-400'}`}>
-                         {selectedIds.has(row.id) ? <CheckSquare size={16} /> : <Square size={16} />}
-                       </div>
+                    <td className="px-4 py-3 text-center cursor-pointer">
+                      <div className={`transition-colors ${
+                        selectedRowIndices.has(idx) ? 'text-blue-400' : 'text-slate-600 group-hover:text-slate-400'
+                      }`}>
+                        {selectedRowIndices.has(idx) ? <CheckSquare size={16} /> : <Square size={16} />}
+                      </div>
                     </td>
-                    {getTableHeaders().map(header => (
-                      <td key={`${row.id}-${header}`} className="px-6 py-4 text-slate-300 font-mono text-xs max-w-[200px] overflow-hidden text-ellipsis">
-                         {String(row[header])}
-                      </td>
-                    ))}
-                    <td className="px-6 py-4 text-right">
-                       <button
-                         onClick={(e) => {
-                             e.stopPropagation();
-                             setViewJsonItem(row);
-                         }}
-                         className="p-1.5 text-slate-500 hover:text-white hover:bg-slate-700 rounded transition-colors"
-                         title="View JSON"
-                       >
-                         <Code size={14} />
-                       </button>
+                    <td className="px-4 py-3 text-slate-600 text-xs">{idx}</td>
+                    {tableColumns.slice(0, 8).map(col => {
+                      const val = item?.[col];
+                      const isObj = val !== null && val !== undefined && typeof val === 'object';
+                      return (
+                        <td key={col} className="px-4 py-3 text-xs max-w-[200px] overflow-hidden text-ellipsis">
+                          {isObj ? (
+                            <button
+                              onClick={e => { e.stopPropagation(); drillInto(String(idx)); }}
+                              className="text-blue-400 hover:text-blue-300 font-bold"
+                            >
+                              {Array.isArray(val) ? `[${val.length}]` : `{${Object.keys(val).length}}`}
+                            </button>
+                          ) : (
+                            <span className={`font-mono ${
+                              val === null ? 'text-slate-600 italic' :
+                              typeof val === 'number' ? 'text-amber-400' :
+                              typeof val === 'boolean' ? 'text-purple-400' :
+                              'text-slate-300'
+                            }`}>
+                              {renderValue(val)}
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={e => { e.stopPropagation(); drillInto(String(idx)); }}
+                        className="p-1 text-slate-600 hover:text-white rounded transition-colors"
+                        title="Drill into row"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-slate-600">
-                <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center mb-4 border border-slate-800">
-                   <Database size={32} className="opacity-50" />
+          )}
+
+          {/* Array of Primitives */}
+          {!fetchLoading && fetchedJson !== null && nodeType === 'array_of_primitives' && Array.isArray(currentNode) && (
+            <div className="p-6 space-y-1">
+              {jsonPath.length > 0 && (
+                <button
+                  onClick={() => navigateTo(jsonPath.length - 1)}
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-white mb-4 transition-colors"
+                >
+                  <ArrowLeft size={12} /> Back
+                </button>
+              )}
+              {currentNode.map((val: any, idx: number) => (
+                <div key={idx} className="flex items-center gap-3 px-4 py-2 rounded hover:bg-slate-800/30 text-sm">
+                  <span className="text-slate-600 text-xs font-mono w-8 text-right">{idx}</span>
+                  <span className={`font-mono text-xs ${
+                    typeof val === 'number' ? 'text-amber-400' :
+                    typeof val === 'boolean' ? 'text-purple-400' :
+                    'text-slate-300'
+                  }`}>
+                    {String(val)}
+                  </span>
                 </div>
-                <p className="text-sm font-medium text-slate-400">Ready to Connect</p>
-                <p className="text-xs mt-2 text-slate-500 max-w-xs text-center leading-relaxed">
-                  Select a preset endpoint (e.g., Knowledge Bases) and click Sync. <br/>
-                  Default URL connects to strapi.sipsy.ai via proxy.
-                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Primitive Value */}
+          {!fetchLoading && fetchedJson !== null && nodeType === 'primitive' && (
+            <div className="p-6">
+              {jsonPath.length > 0 && (
+                <button
+                  onClick={() => navigateTo(jsonPath.length - 1)}
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-white mb-4 transition-colors"
+                >
+                  <ArrowLeft size={12} /> Back
+                </button>
+              )}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                <span className="text-xs text-slate-500 block mb-2">Value</span>
+                <pre className="text-sm font-mono text-emerald-400 whitespace-pre-wrap break-all">
+                  {String(currentNode)}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {/* Empty node */}
+          {!fetchLoading && fetchedJson !== null && nodeType === 'empty' && (
+            <div className="p-6">
+              {jsonPath.length > 0 && (
+                <button
+                  onClick={() => navigateTo(jsonPath.length - 1)}
+                  className="flex items-center gap-1 text-xs text-slate-500 hover:text-white mb-4 transition-colors"
+                >
+                  <ArrowLeft size={12} /> Back
+                </button>
+              )}
+              <div className="text-center py-12 text-slate-600">
+                <p className="text-sm italic">null / empty</p>
+              </div>
             </div>
           )}
 
         </div>
       </div>
-
     </div>
   );
 };

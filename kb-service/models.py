@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
 
 
@@ -110,6 +110,79 @@ class HistoryItemResponse(BaseModel):
 
 class HistoryListResponse(BaseModel):
     data: list[HistoryItemResponse]
+    total: int
+    page: int
+    limit: int
+
+
+# --- Dataset Models ---
+
+class DatasetCreate(BaseModel):
+    name: str
+    url: str
+    method: str = "GET"
+    token: str = ""
+    headers: dict = {}
+
+
+class DatasetUpdate(BaseModel):
+    name: Optional[str] = None
+    url: Optional[str] = None
+    method: Optional[str] = None
+    token: Optional[str] = None
+    headers: Optional[dict] = None
+
+
+class DatasetResponse(BaseModel):
+    id: str
+    name: str
+    url: str
+    method: str
+    token: str
+    headers: dict
+    created_at: datetime
+    updated_at: datetime
+
+
+class DatasetListResponse(BaseModel):
+    data: list[DatasetResponse]
+    total: int
+
+
+class DatasetFetchRequest(BaseModel):
+    body: Optional[dict] = None
+
+
+class DatasetFetchResponse(BaseModel):
+    status: int
+    data: Any
+    elapsed_ms: int
+
+
+# --- Dataset Records Models ---
+
+class DatasetRecordCreate(BaseModel):
+    dataset_id: str
+    data: dict
+    json_path: str = "$"
+    label: str = ""
+
+
+class DatasetRecordBulkCreate(BaseModel):
+    records: list[DatasetRecordCreate]
+
+
+class DatasetRecordResponse(BaseModel):
+    id: str
+    dataset_id: str
+    data: dict
+    json_path: str
+    label: str
+    created_at: datetime
+
+
+class DatasetRecordListResponse(BaseModel):
+    data: list[DatasetRecordResponse]
     total: int
     page: int
     limit: int

@@ -71,6 +71,36 @@ async def init_db():
             ON request_history (created_at DESC)
         """))
 
+        # Datasets table
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS datasets (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name        VARCHAR(255) NOT NULL,
+                url         TEXT NOT NULL,
+                method      VARCHAR(10) NOT NULL DEFAULT 'GET',
+                token       TEXT NOT NULL DEFAULT '',
+                headers     JSONB NOT NULL DEFAULT '{}',
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+
+        # Dataset records table
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS dataset_records (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                dataset_id  UUID NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+                data        JSONB NOT NULL,
+                json_path   TEXT NOT NULL DEFAULT '$',
+                label       TEXT NOT NULL DEFAULT '',
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_dataset_records_dataset_id
+            ON dataset_records (dataset_id, created_at DESC)
+        """))
+
         # Seed default settings if table is empty
         result = await conn.execute(text("SELECT COUNT(*) FROM app_settings"))
         count = result.scalar()
@@ -81,9 +111,6 @@ async def init_db():
                 ('forge_chat_fallback_url', ''),
                 ('forge_embed_fallback_url', ''),
                 ('forge_api_key', 'EMPTY'),
-                ('ds_api_url', '/api/strapi'),
-                ('ds_api_token', ''),
-                ('ds_endpoint', 'knowledge-bases'),
             ]
             for key, value in defaults:
                 await conn.execute(

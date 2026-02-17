@@ -1,8 +1,10 @@
+import json
 import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
+import httpx
 from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, func
@@ -16,6 +18,9 @@ from models import (
     StatsResponse, MessageResponse,
     SettingsResponse, SettingsUpdateRequest,
     HistoryItemInput, HistoryItemResponse, HistoryListResponse,
+    DatasetCreate, DatasetUpdate, DatasetResponse, DatasetListResponse,
+    DatasetFetchRequest, DatasetFetchResponse,
+    DatasetRecordBulkCreate, DatasetRecordResponse, DatasetRecordListResponse,
 )
 
 
@@ -359,3 +364,248 @@ async def clear_history(session: AsyncSession = Depends(get_session)):
     result = await session.execute(text("DELETE FROM request_history"))
     await session.commit()
     return MessageResponse(message=f"Cleared {result.rowcount} history items", count=result.rowcount)
+
+
+# ==================== Dataset Endpoints ====================
+
+
+@app.get("/api/kb/datasets", response_model=DatasetListResponse)
+async def list_datasets(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(text(
+        "SELECT id, name, url, method, token, headers, created_at, updated_at "
+        "FROM datasets ORDER BY created_at DESC"
+    ))
+    rows = result.fetchall()
+    data = [
+        DatasetResponse(
+            id=str(row.id), name=row.name, url=row.url, method=row.method,
+            token=row.token, headers=row.headers if isinstance(row.headers, dict) else json.loads(row.headers or '{}'),
+            created_at=row.created_at, updated_at=row.updated_at,
+        )
+        for row in rows
+    ]
+    return DatasetListResponse(data=data, total=len(data))
+
+
+@app.post("/api/kb/datasets", response_model=DatasetResponse)
+async def create_dataset(req: DatasetCreate, session: AsyncSession = Depends(get_session)):
+    ds_id = str(uuid.uuid4())
+    await session.execute(
+        text("""
+            INSERT INTO datasets (id, name, url, method, token, headers)
+            VALUES (:id, :name, :url, :method, :token, CAST(:headers AS jsonb))
+        """),
+        {
+            "id": ds_id, "name": req.name, "url": req.url, "method": req.method,
+            "token": req.token, "headers": json.dumps(req.headers),
+        }
+    )
+    await session.commit()
+
+    result = await session.execute(
+        text("SELECT id, name, url, method, token, headers, created_at, updated_at FROM datasets WHERE id = :id"),
+        {"id": ds_id}
+    )
+    row = result.fetchone()
+    return DatasetResponse(
+        id=str(row.id), name=row.name, url=row.url, method=row.method,
+        token=row.token, headers=row.headers if isinstance(row.headers, dict) else json.loads(row.headers or '{}'),
+        created_at=row.created_at, updated_at=row.updated_at,
+    )
+
+
+@app.put("/api/kb/datasets/{ds_id}", response_model=DatasetResponse)
+async def update_dataset(ds_id: str, req: DatasetUpdate, session: AsyncSession = Depends(get_session)):
+    updates = {}
+    params = {"id": ds_id}
+    if req.name is not None:
+        updates["name"] = "name = :name"
+        params["name"] = req.name
+    if req.url is not None:
+        updates["url"] = "url = :url"
+        params["url"] = req.url
+    if req.method is not None:
+        updates["method"] = "method = :method"
+        params["method"] = req.method
+    if req.token is not None:
+        updates["token"] = "token = :token"
+        params["token"] = req.token
+    if req.headers is not None:
+        updates["headers"] = "headers = CAST(:headers AS jsonb)"
+        params["headers"] = json.dumps(req.headers)
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    set_clause = ", ".join(updates.values()) + ", updated_at = NOW()"
+    result = await session.execute(
+        text(f"UPDATE datasets SET {set_clause} WHERE id = :id"),
+        params
+    )
+    await session.commit()
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    result = await session.execute(
+        text("SELECT id, name, url, method, token, headers, created_at, updated_at FROM datasets WHERE id = :id"),
+        {"id": ds_id}
+    )
+    row = result.fetchone()
+    return DatasetResponse(
+        id=str(row.id), name=row.name, url=row.url, method=row.method,
+        token=row.token, headers=row.headers if isinstance(row.headers, dict) else json.loads(row.headers or '{}'),
+        created_at=row.created_at, updated_at=row.updated_at,
+    )
+
+
+@app.delete("/api/kb/datasets/{ds_id}", response_model=MessageResponse)
+async def delete_dataset(ds_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("DELETE FROM datasets WHERE id = :id"), {"id": ds_id}
+    )
+    await session.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return MessageResponse(message="Dataset deleted (records cascade-deleted)")
+
+
+@app.post("/api/kb/datasets/{ds_id}/fetch", response_model=DatasetFetchResponse)
+async def fetch_dataset_url(ds_id: str, req: DatasetFetchRequest = None, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("SELECT url, method, token, headers FROM datasets WHERE id = :id"),
+        {"id": ds_id}
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    headers = {}
+    raw_headers = row.headers
+    if isinstance(raw_headers, str):
+        raw_headers = json.loads(raw_headers or '{}')
+    if isinstance(raw_headers, dict):
+        headers.update(raw_headers)
+
+    if row.token:
+        headers["Authorization"] = f"Bearer {row.token}"
+
+    start = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            if row.method.upper() == "POST":
+                body = req.body if req and req.body else None
+                resp = await client.post(row.url, headers=headers, json=body)
+            else:
+                resp = await client.get(row.url, headers=headers)
+
+        elapsed_ms = int((time.time() - start) * 1000)
+
+        try:
+            data = resp.json()
+        except Exception:
+            data = resp.text
+
+        return DatasetFetchResponse(status=resp.status_code, data=data, elapsed_ms=elapsed_ms)
+    except httpx.RequestError as e:
+        elapsed_ms = int((time.time() - start) * 1000)
+        raise HTTPException(status_code=502, detail=f"Fetch failed: {str(e)}")
+
+
+# ==================== Dataset Records Endpoints ====================
+
+
+@app.get("/api/kb/dataset-records", response_model=DatasetRecordListResponse)
+async def list_dataset_records(
+    dataset_id: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    session: AsyncSession = Depends(get_session),
+):
+    conditions = []
+    params = {}
+
+    if dataset_id:
+        conditions.append("dataset_id = :dataset_id")
+        params["dataset_id"] = dataset_id
+
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+
+    count_result = await session.execute(
+        text(f"SELECT COUNT(*) FROM dataset_records {where_clause}"), params
+    )
+    total = count_result.scalar()
+
+    offset = (page - 1) * limit
+    fetch_params = {**params, "limit": limit, "offset": offset}
+    result = await session.execute(
+        text(f"""
+            SELECT id, dataset_id, data, json_path, label, created_at
+            FROM dataset_records
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        fetch_params
+    )
+    rows = result.fetchall()
+
+    data = [
+        DatasetRecordResponse(
+            id=str(row.id), dataset_id=str(row.dataset_id),
+            data=row.data if isinstance(row.data, dict) else json.loads(row.data),
+            json_path=row.json_path, label=row.label, created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+    return DatasetRecordListResponse(data=data, total=total, page=page, limit=limit)
+
+
+@app.post("/api/kb/dataset-records", response_model=MessageResponse)
+async def bulk_create_records(req: DatasetRecordBulkCreate, session: AsyncSession = Depends(get_session)):
+    if not req.records:
+        return MessageResponse(message="No records provided", count=0)
+
+    for rec in req.records:
+        rec_id = str(uuid.uuid4())
+        await session.execute(
+            text("""
+                INSERT INTO dataset_records (id, dataset_id, data, json_path, label)
+                VALUES (:id, :dataset_id, CAST(:data AS jsonb), :json_path, :label)
+            """),
+            {
+                "id": rec_id, "dataset_id": rec.dataset_id,
+                "data": json.dumps(rec.data), "json_path": rec.json_path, "label": rec.label,
+            }
+        )
+    await session.commit()
+    return MessageResponse(message=f"Saved {len(req.records)} records", count=len(req.records))
+
+
+@app.delete("/api/kb/dataset-records/{record_id}", response_model=MessageResponse)
+async def delete_record(record_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("DELETE FROM dataset_records WHERE id = :id"), {"id": record_id}
+    )
+    await session.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return MessageResponse(message="Record deleted")
+
+
+@app.post("/api/kb/dataset-records/bulk-delete", response_model=BulkDeleteResponse)
+async def bulk_delete_records(req: BulkDeleteRequest, session: AsyncSession = Depends(get_session)):
+    if not req.ids:
+        return BulkDeleteResponse(deleted=0)
+
+    placeholders = ", ".join(f":id_{i}" for i in range(len(req.ids)))
+    params = {f"id_{i}": uid for i, uid in enumerate(req.ids)}
+
+    result = await session.execute(
+        text(f"DELETE FROM dataset_records WHERE id IN ({placeholders})"), params
+    )
+    await session.commit()
+    return BulkDeleteResponse(deleted=result.rowcount)

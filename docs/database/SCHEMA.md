@@ -46,9 +46,6 @@ Key-value store. Frontend settings'lerini persist eder (onceki localStorage yeri
 | `forge_chat_fallback_url` | (bos) | Chat fallback URL (Tailscale vb.) |
 | `forge_embed_fallback_url` | (bos) | Embed fallback URL |
 | `forge_api_key` | `EMPTY` | API anahtari |
-| `ds_api_url` | `/api/strapi` | Dataset/Strapi base URL |
-| `ds_api_token` | (bos) | Dataset bearer token |
-| `ds_endpoint` | `knowledge-bases` | Dataset endpoint |
 
 ---
 
@@ -75,6 +72,41 @@ Playground ve Embeddings sayfalarindan yapilan tum API isteklerini loglar.
 
 ---
 
+### 4. `datasets` - Dataset Tanimlari
+
+Kullanicinin ekledigi REST API dataset kaynaklari.
+
+| Kolon | Tip | Constraint | Aciklama |
+|-------|-----|-----------|----------|
+| `id` | SERIAL | PRIMARY KEY | Otomatik artan ID |
+| `name` | VARCHAR(255) | NOT NULL | Dataset adi |
+| `url` | TEXT | NOT NULL | API endpoint URL |
+| `method` | VARCHAR(10) | NOT NULL, DEFAULT 'GET' | HTTP method: `GET` veya `POST` |
+| `token` | TEXT | DEFAULT '' | Bearer token (opsiyonel) |
+| `headers` | JSONB | DEFAULT '{}' | Custom HTTP headers |
+| `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Olusturulma zamani |
+| `updated_at` | TIMESTAMPTZ | DEFAULT NOW() | Son guncelleme zamani |
+
+---
+
+### 5. `dataset_records` - Kaydedilen Dataset Kayitlari
+
+Dataset'lerden secilip kaydedilen JSON kayitlari.
+
+| Kolon | Tip | Constraint | Aciklama |
+|-------|-----|-----------|----------|
+| `id` | SERIAL | PRIMARY KEY | Otomatik artan ID |
+| `dataset_id` | INTEGER | NOT NULL, FK → datasets(id) ON DELETE CASCADE | Ait oldugu dataset |
+| `data` | JSONB | NOT NULL | Kaydedilen JSON verisi |
+| `json_path` | TEXT | DEFAULT '' | JSON drill-down path (orn. "data.items[0]") |
+| `label` | VARCHAR(255) | DEFAULT '' | Kullanici etiketi |
+| `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Olusturulma zamani |
+
+**Indexler:**
+- `idx_dataset_records_dataset_id` - Index on `dataset_id` - FK lookup icin
+
+---
+
 ## Tablo Iliskileri
 
 ```
@@ -89,17 +121,30 @@ Playground ve Embeddings sayfalarindan yapilan tum API isteklerini loglar.
 | created_at       |                              | duration         |
 +------------------+                              | tokens           |
                                                   | status           |
-                                                  | status_text      |
-                                                  | preview          |
-                                                  | created_at       |
-                                                  +------------------+
++------------------+     +--------------------+   | status_text      |
+|    datasets      |     | dataset_records    |   | preview          |
++------------------+     +--------------------+   | created_at       |
+| id (SERIAL) PK   |←1:N| id (SERIAL) PK    |   +------------------+
+| name             |     | dataset_id (FK)    |
+| url              |     | data (JSONB)       |
+| method           |     | json_path          |
+| token            |     | label              |
+| headers (JSONB)  |     | created_at         |
+| created_at       |     +--------------------+
+| updated_at       |       ON DELETE CASCADE
++------------------+
 ```
 
-**Tablolar bagimsizdir** - aralarinda foreign key iliskisi yoktur. Her tablo farkli bir concern'u karsilar:
+**Iliski yapisi:**
 
+- `kb_documents`, `app_settings`, `request_history`: Bagimsiz tablolar (FK yok)
+- `datasets` ←1:N→ `dataset_records`: Foreign key (`dataset_id` → `datasets.id`, CASCADE delete)
+
+**Concern bazli ayrim:**
 - `kb_documents`: Veri katmani (RAG icin embedding'ler)
 - `app_settings`: Konfigurasyon katmani (UI settings persistence)
 - `request_history`: Gozlemlenebilirlik katmani (API istek loglari)
+- `datasets` + `dataset_records`: Dataset katmani (REST API kaynaklari + kaydedilen kayitlar)
 
 ---
 
@@ -116,21 +161,26 @@ Playground ve Embeddings sayfalarindan yapilan tum API isteklerini loglar.
 | kb_documents | `/api/kb/clear` | DELETE | Tum dokumanlari sil |
 | app_settings | `/api/kb/settings` | GET | Tum settings'i getir |
 | app_settings | `/api/kb/settings` | PUT | Settings guncelle (UPSERT) |
-| app_settings | `/api/kb/settings/migrate` | POST | localStorage'dan one-time migration |
 | request_history | `/api/kb/history` | GET | History listele (paginated) |
 | request_history | `/api/kb/history` | POST | Tek history item ekle |
 | request_history | `/api/kb/history` | DELETE | Tum history'yi sil |
 | request_history | `/api/kb/history/bulk` | POST | Bulk insert (migration) |
 | request_history | `/api/kb/history/{id}` | DELETE | Tek history item sil |
+| datasets | `/api/kb/datasets` | GET | Tum dataset'leri listele |
+| datasets | `/api/kb/datasets` | POST | Yeni dataset olustur |
+| datasets | `/api/kb/datasets/{id}` | PUT | Dataset guncelle |
+| datasets | `/api/kb/datasets/{id}` | DELETE | Dataset sil (CASCADE) |
+| datasets | `/api/kb/datasets/fetch` | POST | URL'den veri cek (proxy) |
+| dataset_records | `/api/kb/datasets/{id}/records` | GET | Dataset kayitlarini listele |
+| dataset_records | `/api/kb/datasets/{id}/records` | POST | Kayit kaydet |
+| dataset_records | `/api/kb/datasets/{id}/records` | DELETE | Tum kayitlari sil |
+| dataset_records | `/api/kb/records/{id}` | DELETE | Tek kayit sil |
 
 ---
 
 ## Migration Stratejisi
 
-Frontend ilk acildiginda:
+Settings ve history verileri dogrudan PostgreSQL'de persist edilir. localStorage kullanilmaz.
 
-1. `initSettings()` → localStorage'daki settings'leri DB'ye migrate eder (`ON CONFLICT DO NOTHING`)
-2. `migrateHistoryFromLocalStorage()` → localStorage'daki history items'i bulk insert eder
-3. Basarili migration sonrasi `forge_settings_migrated=true` / `forge_history_migrated=true` flag'leri localStorage'a yazilir
-4. Sonraki boot'larda migration atlanir
-5. DB erisilemediyse localStorage fallback devam eder
+- `initSettings()` → DB'den settings'leri yukler, in-memory cache'e yazar
+- `datasets` ve `dataset_records` tablolari otomatik olusturulur (CREATE TABLE IF NOT EXISTS)

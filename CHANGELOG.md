@@ -3,6 +3,29 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.8.0] - 2026-02-17
+
+### Added
+- Generic REST API dataset connector (herhangi bir URL, GET/POST, token, custom headers)
+- JSON drill-down explorer: breadcrumb navigation, object/array/primitive gorunum
+- Array of objects → tablo gorunumu + satir secimi + "Save Selected"
+- Dataset records sayfasi (/dataset-records): filter, search, expand/collapse, pagination
+- Backend fetch proxy: CORS-free server-side URL fetch (httpx)
+- 2 yeni DB tablosu: `datasets`, `dataset_records` (CASCADE delete)
+- datasetsApi.ts: Full CRUD + fetch proxy + records API client
+- 9 yeni backend endpoint (datasets CRUD + fetch + records CRUD)
+
+### Removed
+- Strapi bagimliligi tamamen kaldirildi (preset endpoints, v4 unwrap, pagination syntax)
+- `/api/strapi` Vite proxy
+- settingsApi ds_* defaults/getters (ds_api_url, ds_api_token, ds_endpoint)
+- Eski dosyalar: ollama-playground.html, ollama-qwen3-4b-swagger.yaml, 8 screenshot PNG
+
+### Changed
+- Datasets.tsx: Strapi-only → generic 2-panel REST API connector + JSON explorer
+- database.py: ds_* seed defaults kaldirildi
+- Sidebar: "Saved Records" nav item eklendi
+
 ## [0.7.1] - 2026-02-17
 ### Changed
 - docs/api/chat-completions.md: Sampling tablosuna "Frontend Default" kolonu + "Frontend Kullanimi (Playground)" section

@@ -3,6 +3,7 @@ import {
   TerminalSquare,
   Box,
   Database,
+  FileJson,
   History,
   Settings,
   Cpu,
@@ -47,7 +48,8 @@ const Sidebar = () => {
         <NavItem to="/models" icon={Box} label="Models" />
         <NavItem to="/embeddings" icon={Cpu} label="Embeddings" />
         <NavItem to="/datasets" icon={Database} label="Datasets" />
-        
+        <NavItem to="/dataset-records" icon={FileJson} label="Saved Records" />
+
         <div className="px-6 py-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Workspace</p>
         </div>

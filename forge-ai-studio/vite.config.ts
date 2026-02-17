@@ -43,11 +43,6 @@ export default defineConfig(({ mode }) => {
             embedLocal, embedFallback,
             (p) => p.replace(/^\/api\/embed/, ''),
           ),
-          '/api/strapi': {
-            target: 'https://strapi.sipsy.ai/api',
-            changeOrigin: true,
-            rewrite: (path: string) => path.replace(/^\/api\/strapi/, ''),
-          },
           '/api/kb': {
             target: 'http://localhost:8833',
             changeOrigin: true,

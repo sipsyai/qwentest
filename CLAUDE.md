@@ -5,8 +5,8 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 
 ## Proje Yapisi
 - `forge-ai-studio/` - Ana React uygulamasi (Vite + TypeScript)
-  - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, History, Settings
-  - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, rag.ts, markdown.ts, mockData.ts
+  - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, DatasetRecords, History, Settings
+  - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, datasetsApi.ts, rag.ts, markdown.ts, mockData.ts
   - `components/` - Sidebar.tsx
 - `kb-service/` - FastAPI + pgvector Knowledge Base backend (main.py, database.py, models.py)
 - `docker-compose.yml` - pgvector PostgreSQL container
@@ -18,8 +18,9 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 ## Servisler
 - **vllm.ts**: Chat completion stream, embedding generation, model listesi, fallback URL support (fetchWithFallback)
 - **kbApi.ts**: KB API client (addDocuments, getDocuments, searchSimilar, deleteDocument, bulkDelete, clearAll, getStats, duplicate handling)
-- **settingsApi.ts**: Settings persistence (in-memory cache + PostgreSQL + localStorage fallback)
-- **historyApi.ts**: Request history persistence (PostgreSQL + localStorage fallback)
+- **datasetsApi.ts**: Datasets + records API client (CRUD, fetch proxy, records save/delete)
+- **settingsApi.ts**: Settings persistence (in-memory cache + PostgreSQL)
+- **historyApi.ts**: Request history persistence (PostgreSQL)
 - **rag.ts**: RAG pipeline (embed query → pgvector search → context injection)
 - **markdown.ts**: Think tag parser + markdown renderer
 - **mockData.ts**: Test/demo verileri
@@ -29,7 +30,8 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **Models**: Model listesi ve detaylari
 - **ModelDetail**: Tek model detay sayfasi
 - **Embeddings**: Embedding olusturma + Knowledge Base kaydetme
-- **Datasets**: Strapi veri cekme, preset endpoints, embed & save, duplicate prevention
+- **Datasets**: Generic REST API connector, JSON drill-down explorer, array→tablo gorunum, save selected
+- **DatasetRecords**: Kaydedilen dataset kayitlari (/dataset-records), filter, search, expand/collapse
 - **History**: Istek gecmisi goruntuleme
 - **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu
 
@@ -46,7 +48,6 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 | vLLM Chat API | 8010 | http://192.168.1.8:8010/v1 | http://100.96.50.76:8010/v1 | /api/chat |
 | vLLM Embed API | 8011 | http://192.168.1.8:8011/v1 | http://100.96.50.76:8011/v1 | /api/embed |
 | KB API (FastAPI) | 8833 | http://localhost:8833 | - (sadece local) | /api/kb |
-| Strapi CMS | 443 | https://strapi.sipsy.ai | https://strapi.sipsy.ai | /api/strapi |
 | Frontend (Vite) | 3000 | http://localhost:3000 | - | - |
 
 ## Servis Baslatma / Durdurma
@@ -65,8 +66,9 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - Lucide React (ikonlar)
 - PostgreSQL + pgvector (Knowledge Base backend)
 - FastAPI (kb-service)
-- PostgreSQL (settings + history persistence, localStorage fallback)
+- PostgreSQL (settings + history + datasets persistence)
+- httpx (async HTTP client, backend fetch proxy)
 
 ## Database
-- 3 tablo: `kb_documents`, `app_settings`, `request_history`
+- 5 tablo: `kb_documents`, `app_settings`, `request_history`, `datasets`, `dataset_records`
 - Detayli sema: `docs/database/SCHEMA.md`

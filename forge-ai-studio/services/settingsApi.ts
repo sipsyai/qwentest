@@ -13,9 +13,6 @@ const DEFAULTS: Record<string, string> = {
   forge_chat_fallback_url: '',
   forge_embed_fallback_url: '',
   forge_api_key: 'EMPTY',
-  ds_api_url: '/api/strapi',
-  ds_api_token: '',
-  ds_endpoint: 'knowledge-bases',
 };
 
 // --- Init: fetch from DB ---
@@ -41,9 +38,6 @@ export const getEmbedBaseUrl = (): string => settingsCache.forge_embed_url || DE
 export const getChatFallbackUrl = (): string => settingsCache.forge_chat_fallback_url || '';
 export const getEmbedFallbackUrl = (): string => settingsCache.forge_embed_fallback_url || '';
 export const getApiKey = (): string => settingsCache.forge_api_key || DEFAULTS.forge_api_key;
-export const getDsApiUrl = (): string => settingsCache.ds_api_url || DEFAULTS.ds_api_url;
-export const getDsApiToken = (): string => settingsCache.ds_api_token || '';
-export const getDsEndpoint = (): string => settingsCache.ds_endpoint || DEFAULTS.ds_endpoint;
 
 // Legacy compat
 export const getBaseUrl = getChatBaseUrl;
