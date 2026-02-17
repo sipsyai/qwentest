@@ -19,7 +19,14 @@ from typing import AsyncGenerator
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import re
+
 from tools import get_tool_schemas, get_tool_handler
+
+
+# Module-level compiled regex and reserved variable names
+_VARIABLE_PATTERN = re.compile(r'\{\{(\w+)\}\}')
+_RESERVED_VARS = {"context"}
 
 
 # SSE event helpers
@@ -101,6 +108,15 @@ class AgentExecutor:
         self.tool_calls_made = []
         self.iterations_used = 0
         self.start_time = 0
+
+    def _resolve_template(self, template: str, vars_dict: dict) -> str:
+        """Resolve {{variable}} placeholders in a template string, preserving reserved vars like {{context}}."""
+        def replacer(m):
+            name = m.group(1)
+            if name in _RESERVED_VARS:
+                return m.group(0)
+            return vars_dict.get(name, "")
+        return _VARIABLE_PATTERN.sub(replacer, template)
 
     def _build_base_body(self, stream: bool = False) -> dict:
         """Build the base vLLM request body (without messages/tools)."""
@@ -287,18 +303,6 @@ class AgentExecutor:
         Simple mode: single LLM call with streaming (backward compatible).
         Yields SSE strings.
         """
-        import re
-        VARIABLE_PATTERN = re.compile(r'\{\{(\w+)\}\}')
-        RESERVED = {"context"}
-
-        def resolve(template, vars_dict):
-            def replacer(m):
-                name = m.group(1)
-                if name in RESERVED:
-                    return m.group(0)
-                return vars_dict.get(name, "")
-            return VARIABLE_PATTERN.sub(replacer, template)
-
         # Merge variables
         config_vars = self.config.get("variables", [])
         merged = {}
@@ -308,8 +312,8 @@ class AgentExecutor:
                 merged[name] = v.get("defaultValue", "")
         merged.update(variables)
 
-        resolved_prompt = resolve(self.prompt_template, merged)
-        resolved_system = resolve(self.system_prompt, merged)
+        resolved_prompt = self._resolve_template(self.prompt_template, merged)
+        resolved_system = self._resolve_template(self.system_prompt, merged)
 
         # RAG
         resolved_prompt, resolved_system, rag_count = await self._resolve_rag(resolved_prompt, resolved_system)
@@ -367,18 +371,6 @@ class AgentExecutor:
         ReAct mode: iterative reasoning + tool calling loop.
         Yields SSE events with typed events (thinking, tool_call, tool_result, stream, done, error).
         """
-        import re
-        VARIABLE_PATTERN = re.compile(r'\{\{(\w+)\}\}')
-        RESERVED = {"context"}
-
-        def resolve(template, vars_dict):
-            def replacer(m):
-                name = m.group(1)
-                if name in RESERVED:
-                    return m.group(0)
-                return vars_dict.get(name, "")
-            return VARIABLE_PATTERN.sub(replacer, template)
-
         # Merge variables
         config_vars = self.config.get("variables", [])
         merged = {}
@@ -388,8 +380,8 @@ class AgentExecutor:
                 merged[name] = v.get("defaultValue", "")
         merged.update(variables)
 
-        resolved_prompt = resolve(self.prompt_template, merged)
-        resolved_system = resolve(self.system_prompt, merged)
+        resolved_prompt = self._resolve_template(self.prompt_template, merged)
+        resolved_system = self._resolve_template(self.system_prompt, merged)
 
         # RAG (pre-loop)
         resolved_prompt, resolved_system, rag_count = await self._resolve_rag(resolved_prompt, resolved_system)
@@ -509,43 +501,11 @@ class AgentExecutor:
                 content = message.get("content", "")
                 self.full_text = content
 
-                # Stream the final answer
                 yield sse_event("final_answer_start", {"iteration": iteration + 1})
 
-                # Re-call with streaming for nice UX
-                # Build messages up to but not including this response, so we get a fresh stream
-                try:
-                    body = self._build_base_body(stream=True)
-                    body["messages"] = self.messages  # includes all tool results
-                    # No tools this time - we want a clean final answer
-                    async with httpx.AsyncClient(timeout=300.0) as client:
-                        async with client.stream(
-                            "POST", f"{self.chat_url}/chat/completions",
-                            json=body, headers={"Content-Type": "application/json"},
-                        ) as resp:
-                            if resp.status_code != 200:
-                                # Fall back to non-streamed content
-                                yield sse_event("stream", {"content": content})
-                            else:
-                                self.full_text = ""
-                                async for line in resp.aiter_lines():
-                                    if line.startswith("data: "):
-                                        payload_str = line[6:]
-                                        if payload_str.strip() == "[DONE]":
-                                            continue
-                                        try:
-                                            chunk = json.loads(payload_str)
-                                            delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                                            if delta:
-                                                self.full_text += delta
-                                                yield sse_event("stream", {"content": delta})
-                                        except Exception:
-                                            pass
-                except Exception:
-                    # Fallback: emit the non-streamed content
-                    if content:
-                        yield sse_event("stream", {"content": content})
-                        self.full_text = content
+                # Emit existing content directly — no second LLM call
+                if content:
+                    yield sse_event("stream", {"content": content})
 
                 # Done
                 yield sse_event("agent_done", {
@@ -572,6 +532,7 @@ class AgentExecutor:
         Main entry point. Routes to simple or react mode based on config.
         """
         if self.agent_mode == "react" and self.enabled_tools:
+            # ReAct mode always streams SSE events (stream param not applicable)
             async for event in self.execute_react(variables):
                 yield event
         else:

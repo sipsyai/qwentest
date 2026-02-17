@@ -780,6 +780,17 @@ async def create_agent(req: AgentCreate, session: AsyncSession = Depends(get_ses
     return _row_to_agent_response(row)
 
 
+@app.get("/api/kb/agents/tools", response_model=AgentToolsResponse)
+async def list_available_tools():
+    """Return all available tools that can be enabled for agents."""
+    tools = []
+    for name in get_available_tool_names():
+        entry = TOOL_REGISTRY[name]
+        desc = entry["schema"]["function"]["description"]
+        tools.append(AgentToolInfo(name=name, description=desc))
+    return AgentToolsResponse(tools=tools)
+
+
 @app.get("/api/kb/agents/{agent_id}", response_model=AgentResponse)
 async def get_agent(agent_id: str, session: AsyncSession = Depends(get_session)):
     result = await session.execute(
@@ -1093,20 +1104,6 @@ async def resolve_vllm_url(session: AsyncSession, setting_key: str, fallback_key
     if fallback and not fallback.startswith("/"):
         return fallback
     return default
-
-
-# ==================== Available Tools Endpoint ====================
-
-
-@app.get("/api/kb/agents/tools", response_model=AgentToolsResponse)
-async def list_available_tools():
-    """Return all available tools that can be enabled for agents."""
-    tools = []
-    for name in get_available_tool_names():
-        entry = TOOL_REGISTRY[name]
-        desc = entry["schema"]["function"]["description"]
-        tools.append(AgentToolInfo(name=name, description=desc))
-    return AgentToolsResponse(tools=tools)
 
 
 # ==================== Agent Run Endpoint (Agentic) ====================
