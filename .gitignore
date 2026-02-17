@@ -8,3 +8,5 @@ venv/
 .claude/reports/
 .claude/plans/
 .playwright-mcp/
+.kb-service.pid
+.frontend.pid

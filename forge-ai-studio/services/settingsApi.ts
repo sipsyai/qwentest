@@ -1,4 +1,4 @@
-// Settings API - In-memory cache + PostgreSQL persistence with localStorage fallback
+// Settings API - In-memory cache + PostgreSQL persistence (no localStorage)
 
 const KB_BASE = '/api/kb';
 
@@ -18,51 +18,19 @@ const DEFAULTS: Record<string, string> = {
   ds_endpoint: 'knowledge-bases',
 };
 
-// --- localStorage helpers ---
-function readLocalStorage(): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const key of Object.keys(DEFAULTS)) {
-    const val = localStorage.getItem(key);
-    if (val !== null) result[key] = val;
-  }
-  return result;
-}
-
-function writeLocalStorage(settings: Record<string, string>) {
-  for (const [key, value] of Object.entries(settings)) {
-    localStorage.setItem(key, value);
-  }
-}
-
-// --- Init: migrate + fetch from DB ---
+// --- Init: fetch from DB ---
 export async function initSettings(): Promise<void> {
-  // 1. Load from localStorage as initial values
-  const localData = readLocalStorage();
-  settingsCache = { ...DEFAULTS, ...localData };
+  settingsCache = { ...DEFAULTS };
 
   try {
-    // 2. Migrate localStorage → DB (one-time, idempotent)
-    const migrated = localStorage.getItem('forge_settings_migrated');
-    if (!migrated && Object.keys(localData).length > 0) {
-      await fetch(`${KB_BASE}/settings/migrate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: localData }),
-      });
-      localStorage.setItem('forge_settings_migrated', 'true');
-    }
-
-    // 3. Fetch from DB (source of truth)
     const res = await fetch(`${KB_BASE}/settings`);
     if (res.ok) {
       const data = await res.json();
       settingsCache = { ...DEFAULTS, ...data.settings };
       dbAvailable = true;
-      // Sync back to localStorage as backup
-      writeLocalStorage(settingsCache);
     }
   } catch {
-    // DB unreachable → keep localStorage values in cache
+    // DB unreachable → use defaults
     dbAvailable = false;
   }
 }
@@ -83,7 +51,7 @@ export const getBaseUrl = getChatBaseUrl;
 // Get all settings (sync, from cache)
 export const getAllSettings = (): Record<string, string> => ({ ...settingsCache });
 
-// --- Async setters (DB + cache + localStorage) ---
+// --- Async setters (DB + cache) ---
 
 export async function setConfig(
   chatUrl: string,
@@ -105,18 +73,17 @@ export async function setConfig(
 export async function updateSettings(updates: Record<string, string>): Promise<void> {
   // Update cache immediately
   Object.assign(settingsCache, updates);
-  // Always write to localStorage as backup
-  writeLocalStorage(updates);
 
-  if (dbAvailable) {
-    try {
-      await fetch(`${KB_BASE}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: updates }),
-      });
-    } catch {
-      // DB write failed — localStorage already has the values
+  try {
+    const res = await fetch(`${KB_BASE}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: updates }),
+    });
+    if (res.ok) {
+      dbAvailable = true;
     }
+  } catch {
+    // DB write failed — cache still has updated values for this session
   }
 }

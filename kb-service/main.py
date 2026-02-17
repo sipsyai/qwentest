@@ -265,23 +265,6 @@ async def update_settings(req: SettingsUpdateRequest, session: AsyncSession = De
     return SettingsResponse(settings={row.key: row.value for row in rows})
 
 
-@app.post("/api/kb/settings/migrate", response_model=MessageResponse)
-async def migrate_settings(req: SettingsUpdateRequest, session: AsyncSession = Depends(get_session)):
-    migrated = 0
-    for key, value in req.settings.items():
-        result = await session.execute(
-            text("""
-                INSERT INTO app_settings (key, value)
-                VALUES (:key, :value)
-                ON CONFLICT (key) DO NOTHING
-            """),
-            {"key": key, "value": value}
-        )
-        migrated += result.rowcount
-    await session.commit()
-    return MessageResponse(message=f"Migrated {migrated} settings", count=migrated)
-
-
 # ==================== History Endpoints ====================
 
 

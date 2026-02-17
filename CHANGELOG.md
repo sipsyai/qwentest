@@ -3,6 +3,24 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.7.0] - 2026-02-17
+### Removed
+- localStorage: settings ve history icin localStorage tamamen kaldirildi
+- settingsApi: localStorage read/write/migration fonksiyonlari
+- historyApi: localStorage fallback (readLocalStorageHistory, LS_KEY)
+- kb-service: /api/kb/settings/migrate endpoint
+
+### Added
+- start.sh: KB servisi + Frontend tek komutla baslatma
+- stop.sh: Tum servisleri durdurma (PID + port fallback)
+
+### Changed
+- KB service port: 8012 → 8833
+- settingsApi.ts: Pure DB + in-memory cache (localStorage yok)
+- historyApi.ts: Pure DB (localStorage fallback yok)
+- updateSettings: dbAvailable kontrolu kaldirildi, her zaman DB'ye yazar
+- CLAUDE.md: IP tablosu, port guncelleme, script dokumantasyonu
+
 ## [0.6.0] - 2026-02-17
 ### Added
 - PostgreSQL persistence: `app_settings` + `request_history` tablolari (kb-service/database.py)

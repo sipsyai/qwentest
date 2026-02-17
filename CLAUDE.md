@@ -34,11 +34,26 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu
 
 ## Dev Ortami
-- Chat API: port 8010 (proxy: /api/chat)
-- Embed API: port 8011 (proxy: /api/embed)
-- KB API: port 8012 (proxy: /api/kb)
-- Strapi: strapi.sipsy.ai (proxy: /api/strapi)
-- Dev server: port 3000
+
+### Network IP'leri
+| Ortam | Local IP | Tailscale IP |
+|-------|----------|--------------|
+| ubuntu-gpu | 192.168.1.8 | 100.96.50.76 |
+
+### Servis Portlari ve URL'leri
+| Servis | Port | Local URL | Tailscale URL | Proxy |
+|--------|------|-----------|---------------|-------|
+| vLLM Chat API | 8010 | http://192.168.1.8:8010/v1 | http://100.96.50.76:8010/v1 | /api/chat |
+| vLLM Embed API | 8011 | http://192.168.1.8:8011/v1 | http://100.96.50.76:8011/v1 | /api/embed |
+| KB API (FastAPI) | 8833 | http://localhost:8833 | - (sadece local) | /api/kb |
+| Strapi CMS | 443 | https://strapi.sipsy.ai | https://strapi.sipsy.ai | /api/strapi |
+| Frontend (Vite) | 3000 | http://localhost:3000 | - | - |
+
+## Servis Baslatma / Durdurma
+- `./start.sh` - KB servisi (port 8833) + Frontend (port 3000) baslatir
+- `./stop.sh` - Tum servisleri durdurur
+- PID dosyalari: `.kb-service.pid`, `.frontend.pid`
+- Loglar: `/tmp/kb-service.log`, `/tmp/frontend.log`
 
 ## Slash Komutlari
 - `/test-api` - vLLM API testlerini calistir ve rapor olustur

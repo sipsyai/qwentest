@@ -9,7 +9,6 @@ import History from './pages/History';
 import Settings from './pages/Settings';
 import Datasets from './pages/Datasets';
 import { initSettings } from './services/settingsApi';
-import { migrateHistoryFromLocalStorage } from './services/historyApi';
 
 const Layout = ({ children }: { children?: React.ReactNode }) => (
   <div className="flex bg-slate-950 min-h-screen font-sans text-slate-100">
@@ -24,7 +23,7 @@ const App = () => {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    Promise.all([initSettings(), migrateHistoryFromLocalStorage()])
+    initSettings()
       .then(() => setReady(true))
       .catch(() => setReady(true)); // fallback: proceed even if init fails
   }, []);
