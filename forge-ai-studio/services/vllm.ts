@@ -4,30 +4,54 @@ import { Model } from '../types';
 
 export const getChatBaseUrl = () => localStorage.getItem('forge_chat_url') || '/api/chat';
 export const getEmbedBaseUrl = () => localStorage.getItem('forge_embed_url') || '/api/embed';
+export const getChatFallbackUrl = () => localStorage.getItem('forge_chat_fallback_url') || '';
+export const getEmbedFallbackUrl = () => localStorage.getItem('forge_embed_fallback_url') || '';
 export const getApiKey = () => localStorage.getItem('forge_api_key') || 'EMPTY';
 
 // Legacy compat
 export const getBaseUrl = getChatBaseUrl;
 
-export const setConfig = (chatUrl: string, embedUrl: string, key: string) => {
+export const setConfig = (chatUrl: string, embedUrl: string, key: string, chatFallback?: string, embedFallback?: string) => {
   localStorage.setItem('forge_chat_url', chatUrl);
   localStorage.setItem('forge_embed_url', embedUrl);
   localStorage.setItem('forge_api_key', key);
+  localStorage.setItem('forge_chat_fallback_url', chatFallback || '');
+  localStorage.setItem('forge_embed_fallback_url', embedFallback || '');
 };
+
+// --- Fallback fetch helper ---
+
+async function fetchWithFallback(url: string, fallbackUrl: string, options: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    if (!fallbackUrl || fallbackUrl === url) throw err;
+    if (!(err instanceof TypeError)) throw err;
+    if (options.signal?.aborted) throw err;
+    console.warn(`[fallback] ${url} failed, retrying with ${fallbackUrl}`);
+    return await fetch(fallbackUrl, options);
+  }
+}
 
 // --- Fetch models from vLLM chat server ---
 
 export const fetchVLLMModels = async (): Promise<Model[]> => {
   const baseUrl = getChatBaseUrl();
+  const fallbackUrl = getChatFallbackUrl();
   const apiKey = getApiKey();
 
-  const response = await fetch(`${baseUrl}/models`, {
+  const options: RequestInit = {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-  });
+  };
+  const response = await fetchWithFallback(
+    `${baseUrl}/models`,
+    fallbackUrl ? `${fallbackUrl}/models` : '',
+    options
+  );
 
   if (!response.ok) throw new Error(`Server returned ${response.status} ${response.statusText}`);
 
@@ -58,16 +82,22 @@ export const fetchVLLMModels = async (): Promise<Model[]> => {
 
 export const fetchEmbedModels = async (): Promise<string[]> => {
   const baseUrl = getEmbedBaseUrl();
+  const fallbackUrl = getEmbedFallbackUrl();
   const apiKey = getApiKey();
 
   try {
-    const response = await fetch(`${baseUrl}/models`, {
+    const options: RequestInit = {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-    });
+    };
+    const response = await fetchWithFallback(
+      `${baseUrl}/models`,
+      fallbackUrl ? `${fallbackUrl}/models` : '',
+      options
+    );
 
     if (!response.ok) return [];
     const data = await response.json();
@@ -104,6 +134,7 @@ export const streamChatCompletion = async (
   signal?: AbortSignal
 ) => {
   const baseUrl = getChatBaseUrl();
+  const fallbackUrl = getChatFallbackUrl();
   const apiKey = getApiKey();
 
   try {
@@ -126,15 +157,19 @@ export const streamChatCompletion = async (
     if (params.response_format) body.response_format = params.response_format;
     if (params.chat_template_kwargs) body.chat_template_kwargs = params.chat_template_kwargs;
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
+    const response = await fetchWithFallback(
+      `${baseUrl}/chat/completions`,
+      fallbackUrl ? `${fallbackUrl}/chat/completions` : '',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal,
+      }
+    );
 
     if (!response.ok) {
       const errText = await response.text().catch(() => response.statusText);
@@ -205,17 +240,22 @@ export const generateEmbeddings = async (
   signal?: AbortSignal
 ): Promise<EmbeddingResponse> => {
   const baseUrl = getEmbedBaseUrl();
+  const fallbackUrl = getEmbedFallbackUrl();
   const apiKey = getApiKey();
 
-  const response = await fetch(`${baseUrl}/embeddings`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ model, input }),
-    signal,
-  });
+  const response = await fetchWithFallback(
+    `${baseUrl}/embeddings`,
+    fallbackUrl ? `${fallbackUrl}/embeddings` : '',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model, input }),
+      signal,
+    }
+  );
 
   if (!response.ok) {
     const errText = await response.text().catch(() => response.statusText);

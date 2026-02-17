@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Server, ShieldCheck, RefreshCw, Cpu, CheckCircle2 } from 'lucide-react';
-import { getChatBaseUrl, getEmbedBaseUrl, getApiKey, setConfig } from '../services/vllm';
+import { getChatBaseUrl, getEmbedBaseUrl, getChatFallbackUrl, getEmbedFallbackUrl, getApiKey, setConfig } from '../services/vllm';
 
 const Settings = () => {
   const [chatUrl, setChatUrl] = useState('');
   const [embedUrl, setEmbedUrl] = useState('');
+  const [chatFallbackUrl, setChatFallbackUrl] = useState('');
+  const [embedFallbackUrl, setEmbedFallbackUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [chatStatus, setChatStatus] = useState<'idle' | 'checking' | 'online' | 'offline'>('idle');
@@ -13,11 +15,13 @@ const Settings = () => {
   useEffect(() => {
     setChatUrl(getChatBaseUrl());
     setEmbedUrl(getEmbedBaseUrl());
+    setChatFallbackUrl(getChatFallbackUrl());
+    setEmbedFallbackUrl(getEmbedFallbackUrl());
     setApiKey(getApiKey());
   }, []);
 
   const handleSave = () => {
-    setConfig(chatUrl, embedUrl, apiKey);
+    setConfig(chatUrl, embedUrl, apiKey, chatFallbackUrl, embedFallbackUrl);
     setStatus('success');
     setTimeout(() => setStatus('idle'), 2000);
   };
@@ -45,7 +49,7 @@ const Settings = () => {
   return (
     <div className="p-8 h-screen overflow-y-auto bg-slate-950">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white mb-2">Connection Settings</h1>
+        <h1 className="text-2xl font-bold text-white mb-2">AI Configuration</h1>
         <p className="text-slate-400 text-sm">Configure your connection to the vLLM servers.</p>
       </div>
 
@@ -85,6 +89,20 @@ const Settings = () => {
                 Default: <code>/api/chat</code> (proxied via Vite). Direct: <code>http://192.168.1.8:8010/v1</code>
               </p>
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Fallback URL <span className="text-slate-500 font-normal">(optional)</span></label>
+              <input
+                type="text"
+                value={chatFallbackUrl}
+                onChange={(e) => setChatFallbackUrl(e.target.value)}
+                placeholder="http://100.96.50.76:8010/v1"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+              />
+              <p className="mt-2 text-xs text-slate-500">
+                Network hatası durumunda otomatik olarak bu URL denenir (ör. Tailscale IP).
+              </p>
+            </div>
           </div>
         </div>
 
@@ -121,6 +139,20 @@ const Settings = () => {
               </div>
               <p className="mt-2 text-xs text-slate-500">
                 Default: <code>/api/embed</code> (proxied via Vite). Direct: <code>http://192.168.1.8:8011/v1</code>
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Fallback URL <span className="text-slate-500 font-normal">(optional)</span></label>
+              <input
+                type="text"
+                value={embedFallbackUrl}
+                onChange={(e) => setEmbedFallbackUrl(e.target.value)}
+                placeholder="http://100.96.50.76:8011/v1"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+              />
+              <p className="mt-2 text-xs text-slate-500">
+                Network hatası durumunda otomatik olarak bu URL denenir (ör. Tailscale IP).
               </p>
             </div>
           </div>

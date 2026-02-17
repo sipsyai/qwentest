@@ -15,7 +15,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - `test-api.py` - API test scripti (health, chat, thinking, completions, embed, tokenizer, streaming, edge)
 
 ## Servisler
-- **vllm.ts**: Chat completion stream, embedding generation, model listesi
+- **vllm.ts**: Chat completion stream, embedding generation, model listesi, fallback URL support (fetchWithFallback)
 - **kbApi.ts**: KB API client (addDocuments, getDocuments, searchSimilar, deleteDocument, bulkDelete, clearAll, getStats, duplicate handling)
 - **rag.ts**: RAG pipeline (embed query → pgvector search → context injection)
 - **markdown.ts**: Think tag parser + markdown renderer
@@ -29,7 +29,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **Embeddings**: Embedding olusturma + Knowledge Base kaydetme
 - **Datasets**: Strapi veri cekme, preset endpoints, embed & save, duplicate prevention
 - **History**: Istek gecmisi goruntuleme
-- **Settings**: API URL, model, parametre ayarlari
+- **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu
 
 ## Dev Ortami
 - Chat API: port 8010 (proxy: /api/chat)

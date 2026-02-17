@@ -3,6 +3,15 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.5.0] - 2026-02-17
+### Added
+- vLLM fallback URL destegi: fetchWithFallback helper, fallback getter/setter fonksiyonlari (vllm.ts)
+- Settings: Fallback URL input alanlari (Chat API + Embed API)
+- Vite proxy fallback mekanizmasi (local IP → Tailscale IP otomatik gecis)
+
+### Changed
+- Settings sayfa basligi "AI Configuration" olarak guncellendi
+
 ## [0.4.1] - 2026-02-16
 ### Fixed
 - KB duplicate prevention: `idx_kb_text_unique` unique index (md5(text)) olusturma
