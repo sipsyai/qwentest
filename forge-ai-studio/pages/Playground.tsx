@@ -384,45 +384,65 @@ const Playground = () => {
             </label>
           </section>
 
-          {/* RAG Source Filter */}
-          {ragEnabled && availableSources.length > 0 && (
-            <section className="bg-amber-900/10 border border-amber-900/30 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3">
+          {/* RAG Source Filter / Config */}
+          {ragEnabled && (
+            <section className="bg-amber-900/10 border border-amber-900/30 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
                 <Search size={14} className="text-amber-400" />
-                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">RAG Source Filter</span>
+                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">RAG Config</span>
                 <span className="text-[10px] text-slate-500 ml-auto">
                   {ragSources.length === 0 ? 'All sources' : `${ragSources.length} selected`}
                 </span>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {availableSources.map(label => {
-                  const isSelected = ragSources.includes(label);
-                  return (
+
+              {availableSources.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {availableSources.map(label => {
+                    const isSelected = ragSources.includes(label);
+                    return (
+                      <button
+                        key={label}
+                        onClick={() => {
+                          setRagSources(prev =>
+                            isSelected ? prev.filter(s => s !== label) : [...prev, label]
+                          );
+                        }}
+                        className={`px-2.5 py-1 text-[11px] font-medium rounded-full border transition-all ${
+                          isSelected
+                            ? 'bg-amber-600/20 text-amber-300 border-amber-600/50'
+                            : 'bg-slate-800/50 text-slate-500 border-slate-700 hover:text-slate-300 hover:border-slate-600'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                  {ragSources.length > 0 && (
                     <button
-                      key={label}
-                      onClick={() => {
-                        setRagSources(prev =>
-                          isSelected ? prev.filter(s => s !== label) : [...prev, label]
-                        );
-                      }}
-                      className={`px-2.5 py-1 text-[11px] font-medium rounded-full border transition-all ${
-                        isSelected
-                          ? 'bg-amber-600/20 text-amber-300 border-amber-600/50'
-                          : 'bg-slate-800/50 text-slate-500 border-slate-700 hover:text-slate-300 hover:border-slate-600'
-                      }`}
+                      onClick={() => setRagSources([])}
+                      className="px-2.5 py-1 text-[11px] font-medium rounded-full text-slate-500 hover:text-white transition-colors"
                     >
-                      {label}
+                      Clear all
                     </button>
-                  );
-                })}
-                {ragSources.length > 0 && (
-                  <button
-                    onClick={() => setRagSources([])}
-                    className="px-2.5 py-1 text-[11px] font-medium rounded-full text-slate-500 hover:text-white transition-colors"
-                  >
-                    Clear all
-                  </button>
-                )}
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center gap-6 pt-1 border-t border-amber-900/20">
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase shrink-0">Top K</span>
+                  <input type="range" min="1" max="20" step="1"
+                    value={ragTopK} onChange={(e) => setRagTopK(parseInt(e.target.value))}
+                    className="flex-1 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+                  <span className="text-xs text-amber-400 font-mono w-4 text-right">{ragTopK}</span>
+                </div>
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase shrink-0">Threshold</span>
+                  <input type="range" min="0" max="1" step="0.05"
+                    value={ragThreshold} onChange={(e) => setRagThreshold(parseFloat(e.target.value))}
+                    className="flex-1 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+                  <span className="text-xs text-amber-400 font-mono w-7 text-right">{ragThreshold.toFixed(2)}</span>
+                </div>
               </div>
             </section>
           )}

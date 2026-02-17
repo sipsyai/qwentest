@@ -6,7 +6,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 ## Proje Yapisi
 - `forge-ai-studio/` - Ana React uygulamasi (Vite + TypeScript)
   - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, DatasetRecords, History, Settings
-  - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, datasetsApi.ts, rag.ts, markdown.ts, mockData.ts
+  - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, datasetsApi.ts, embedUtils.ts, rag.ts, markdown.ts, mockData.ts
   - `components/` - Sidebar.tsx
 - `kb-service/` - FastAPI + pgvector Knowledge Base backend (main.py, database.py, models.py)
 - `docker-compose.yml` - pgvector PostgreSQL container
@@ -18,7 +18,8 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 ## Servisler
 - **vllm.ts**: Chat completion stream, embedding generation, model listesi, fallback URL support (fetchWithFallback)
 - **kbApi.ts**: KB API client (addDocuments, getDocuments, searchSimilar, deleteDocument, bulkDelete, clearAll, getStats, duplicate handling)
-- **datasetsApi.ts**: Datasets + records API client (CRUD, fetch proxy, records save/delete)
+- **datasetsApi.ts**: Datasets + records API client (CRUD, fetch proxy, records save/delete, embed records, search records)
+- **embedUtils.ts**: Shared embedding utilities (batch embed with progress, chunked text processing)
 - **settingsApi.ts**: Settings persistence (in-memory cache + PostgreSQL)
 - **historyApi.ts**: Request history persistence (PostgreSQL)
 - **rag.ts**: RAG pipeline (embed query → pgvector search → context injection)
@@ -26,12 +27,12 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **mockData.ts**: Test/demo verileri
 
 ## Sayfalar
-- **Playground**: Chat arayuzu, streaming, think mode, RAG mode
+- **Playground**: Chat arayuzu, streaming, think mode, RAG mode, configurable RAG params (top_k, similarity_threshold sliders)
 - **Models**: Model listesi ve detaylari
 - **ModelDetail**: Tek model detay sayfasi
-- **Embeddings**: Embedding olusturma + Knowledge Base kaydetme
+- **Embeddings**: Embedding olusturma + Knowledge Base kaydetme, configurable search params (top_k, similarity_threshold sliders)
 - **Datasets**: Generic REST API connector, manual JSON paste (no API needed), JSON drill-down explorer, array→tablo gorunum, save selected, field extraction config (array_path + extract_fields), extract & save all, manual fetch
-- **DatasetRecords**: Kaydedilen dataset kayitlari (/dataset-records), filter, search, tablo gorunumu (otomatik kolon turetme)
+- **DatasetRecords**: Kaydedilen dataset kayitlari (/dataset-records), filter, search, tablo gorunumu (otomatik kolon turetme), embed pipeline (tag-based field selection, batch embed with progress, embed status tracking)
 - **History**: Istek gecmisi goruntuleme
 - **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu
 

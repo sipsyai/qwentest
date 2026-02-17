@@ -103,6 +103,23 @@ export async function fetchDatasetUrl(datasetId: string, body?: Record<string, a
   return res.json();
 }
 
+// --- Single Dataset ---
+
+export async function getDataset(id: string): Promise<Dataset> {
+  const res = await fetch(`${KB_BASE}/datasets/${id}`);
+  if (!res.ok) throw new Error(`Failed to get dataset: ${res.status}`);
+  return res.json();
+}
+
+// --- All Records (no pagination, for embedding) ---
+
+export async function getAllDatasetRecords(dataset_id: string): Promise<DatasetRecord[]> {
+  const res = await fetch(`${KB_BASE}/dataset-records/all?dataset_id=${encodeURIComponent(dataset_id)}`);
+  if (!res.ok) throw new Error(`Failed to get all records: ${res.status}`);
+  const result = await res.json();
+  return result.data;
+}
+
 // --- Dataset Records CRUD ---
 
 export async function getDatasetRecords(params: {

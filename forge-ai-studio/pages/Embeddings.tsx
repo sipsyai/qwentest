@@ -47,6 +47,8 @@ Machine learning models require clean datasets.`);
   const [kbSearchResults, setKbSearchResults] = useState<SearchResult[] | null>(null);
   const [kbSearching, setKbSearching] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [kbSearchTopK, setKbSearchTopK] = useState(10);
+  const [kbSearchThreshold, setKbSearchThreshold] = useState(0.2);
 
   // Check for incoming data from Datasets page
   useEffect(() => {
@@ -257,7 +259,7 @@ Machine learning models require clean datasets.`);
       const embedResponse = await generateEmbeddings(selectedModel, [kbSearchQuery.trim()]);
       const queryVector = embedResponse.data[0]?.embedding;
       if (!queryVector) throw new Error('Failed to generate query embedding');
-      const results = await searchSimilar(queryVector, 10, 0.2);
+      const results = await searchSimilar(queryVector, kbSearchTopK, kbSearchThreshold);
       setKbSearchResults(results);
     } catch (err: any) {
       setError(`Search failed: ${err.message}`);
@@ -617,7 +619,22 @@ Machine learning models require clean datasets.`);
                   </select>
                 )}
 
-                <div className="flex-1" />
+                <div className="flex items-center gap-3 ml-auto">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Top K</span>
+                    <input type="range" min="1" max="20" step="1"
+                      value={kbSearchTopK} onChange={(e) => setKbSearchTopK(parseInt(e.target.value))}
+                      className="w-16 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+                    <span className="text-[10px] text-amber-400 font-mono w-4 text-right">{kbSearchTopK}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase">Threshold</span>
+                    <input type="range" min="0" max="1" step="0.05"
+                      value={kbSearchThreshold} onChange={(e) => setKbSearchThreshold(parseFloat(e.target.value))}
+                      className="w-16 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+                    <span className="text-[10px] text-amber-400 font-mono w-7 text-right">{kbSearchThreshold.toFixed(2)}</span>
+                  </div>
+                </div>
 
                 <div className="flex items-center gap-2">
                   <input

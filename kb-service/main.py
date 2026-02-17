@@ -473,6 +473,18 @@ async def update_dataset(ds_id: str, req: DatasetUpdate, session: AsyncSession =
     return _row_to_dataset_response(row)
 
 
+@app.get("/api/kb/datasets/{ds_id}", response_model=DatasetResponse)
+async def get_dataset(ds_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("SELECT id, name, url, method, token, headers, array_path, extract_fields, raw_data, created_at, updated_at FROM datasets WHERE id = :id"),
+        {"id": ds_id}
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return _row_to_dataset_response(row)
+
+
 @app.delete("/api/kb/datasets/{ds_id}", response_model=MessageResponse)
 async def delete_dataset(ds_id: str, session: AsyncSession = Depends(get_session)):
     result = await session.execute(
@@ -527,6 +539,40 @@ async def fetch_dataset_url(ds_id: str, req: DatasetFetchRequest = None, session
 
 
 # ==================== Dataset Records Endpoints ====================
+
+
+@app.get("/api/kb/dataset-records/all", response_model=DatasetRecordListResponse)
+async def list_all_dataset_records(
+    dataset_id: str = Query(...),
+    session: AsyncSession = Depends(get_session),
+):
+    count_result = await session.execute(
+        text("SELECT COUNT(*) FROM dataset_records WHERE dataset_id = :dataset_id"),
+        {"dataset_id": dataset_id}
+    )
+    total = count_result.scalar()
+
+    result = await session.execute(
+        text("""
+            SELECT id, dataset_id, data, json_path, label, created_at
+            FROM dataset_records
+            WHERE dataset_id = :dataset_id
+            ORDER BY created_at ASC
+        """),
+        {"dataset_id": dataset_id}
+    )
+    rows = result.fetchall()
+
+    data = [
+        DatasetRecordResponse(
+            id=str(row.id), dataset_id=str(row.dataset_id),
+            data=row.data if isinstance(row.data, dict) else json.loads(row.data),
+            json_path=row.json_path, label=row.label, created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+    return DatasetRecordListResponse(data=data, total=total, page=1, limit=total or 1)
 
 
 @app.get("/api/kb/dataset-records", response_model=DatasetRecordListResponse)

@@ -3,6 +3,25 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.11.0] - 2026-02-17
+
+### Added
+- Dataset Records → Vector DB embedding pipeline: Embed Selected + Embed All buttons on DatasetRecords page
+- embedUtils.ts: recordToText(), getNestedValue(), batchArray() utilities for dataset→text conversion
+- Progress bar with batch progress tracking during embedding operations
+- Confirmation modal for "Embed All" with duplicate skip info
+- Auto-dismiss success message: "Embedded X records (Y duplicates skipped)"
+- Backend: GET /api/kb/datasets/{id} endpoint (single dataset fetch)
+- Backend: GET /api/kb/dataset-records/all?dataset_id=X endpoint (all records, no pagination)
+- datasetsApi.ts: getDataset() + getAllDatasetRecords() functions
+- Embeddings KB tab: configurable Top K (1-20) and Threshold (0.0-1.0) sliders for semantic search
+- Playground RAG panel: Top K + Threshold sliders (always visible when RAG enabled)
+
+### Changed
+- Playground: RAG Config panel now always shows when RAG enabled (not only when sources exist)
+- DatasetRecords header: embed model dropdown, Embed Selected/Embed All buttons
+- Embeddings: KB search uses user-configured topK/threshold instead of hardcoded values
+
 ## [0.10.1] - 2026-02-17
 
 ### Fixed

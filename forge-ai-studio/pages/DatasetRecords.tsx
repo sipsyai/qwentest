@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   FileJson, Trash2, ChevronDown, ChevronRight, Search,
-  Loader2, AlertCircle, CheckSquare, Square, X
+  Loader2, AlertCircle, CheckSquare, Square, X, Database, CheckCircle2
 } from 'lucide-react';
 import {
-  getDatasets, getDatasetRecords, deleteDatasetRecord, bulkDeleteDatasetRecords,
+  getDatasets, getDataset, getDatasetRecords, getAllDatasetRecords,
+  deleteDatasetRecord, bulkDeleteDatasetRecords,
   Dataset, DatasetRecord
 } from '../services/datasetsApi';
+import { fetchEmbedModels, generateEmbeddings } from '../services/vllm';
+import { addDocuments } from '../services/kbApi';
+import { recordToText, batchArray } from '../services/embedUtils';
 
 const DatasetRecords = () => {
   // Data
@@ -28,9 +32,30 @@ const DatasetRecords = () => {
   // Expanded row (single row detail)
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Embed state
+  const [embedModels, setEmbedModels] = useState<string[]>([]);
+  const [selectedEmbedModel, setSelectedEmbedModel] = useState('');
+  const [embedding, setEmbedding] = useState(false);
+  const [embedProgress, setEmbedProgress] = useState({ current: 0, total: 0 });
+  const [embedResult, setEmbedResult] = useState<string | null>(null);
+  const [showEmbedAllConfirm, setShowEmbedAllConfirm] = useState(false);
+
+  // Dataset cache for embed (extract_fields lookup)
+  const datasetCacheRef = React.useRef<Map<string, Dataset>>(new Map());
+
   // Load datasets for filter dropdown
   useEffect(() => {
     getDatasets().then(r => setDatasets(r.data)).catch(() => {});
+  }, []);
+
+  // Load embed models
+  useEffect(() => {
+    fetchEmbedModels().then(models => {
+      if (models.length > 0) {
+        setEmbedModels(models);
+        setSelectedEmbedModel(models[0]);
+      }
+    });
   }, []);
 
   // Load records
@@ -133,8 +158,131 @@ const DatasetRecords = () => {
 
   const totalPages = Math.ceil(total / limit);
 
+  // --- Embed Logic ---
+
+  const getCachedDataset = async (dsId: string): Promise<Dataset> => {
+    const cached = datasetCacheRef.current.get(dsId);
+    if (cached) return cached;
+    const ds = await getDataset(dsId);
+    datasetCacheRef.current.set(dsId, ds);
+    return ds;
+  };
+
+  const embedRecords = async (recordsToEmbed: DatasetRecord[]) => {
+    if (recordsToEmbed.length === 0 || !selectedEmbedModel) return;
+
+    setEmbedding(true);
+    setEmbedResult(null);
+    setError(null);
+    setEmbedProgress({ current: 0, total: recordsToEmbed.length });
+
+    let totalInserted = 0;
+    let totalSkipped = 0;
+
+    try {
+      // Prepare texts: resolve dataset for each record
+      const textsWithMeta: { text: string; datasetName: string }[] = [];
+      const dsIds = [...new Set(recordsToEmbed.map(r => r.dataset_id))];
+      const dsMap = new Map<string, Dataset>();
+      for (const dsId of dsIds) {
+        dsMap.set(dsId, await getCachedDataset(dsId));
+      }
+
+      for (const rec of recordsToEmbed) {
+        const ds = dsMap.get(rec.dataset_id) || null;
+        const text = recordToText(rec, ds);
+        textsWithMeta.push({ text, datasetName: ds?.name || rec.dataset_id.slice(0, 8) });
+      }
+
+      // Batch embed + save
+      const BATCH_SIZE = 32;
+      const batches = batchArray(textsWithMeta, BATCH_SIZE);
+      let processed = 0;
+
+      for (const batch of batches) {
+        const batchTexts = batch.map(b => b.text);
+        const embedResponse = await generateEmbeddings(selectedEmbedModel, batchTexts);
+
+        const docs = embedResponse.data.map((item, idx) => ({
+          text: batch[idx].text,
+          embedding: item.embedding,
+          source: 'dataset' as const,
+          sourceLabel: batch[idx].datasetName,
+        }));
+
+        const inserted = await addDocuments(docs, selectedEmbedModel);
+        totalInserted += inserted;
+        totalSkipped += docs.length - inserted;
+
+        processed += batch.length;
+        setEmbedProgress({ current: processed, total: recordsToEmbed.length });
+      }
+
+      const msg = totalSkipped > 0
+        ? `Embedded ${totalInserted} records (${totalSkipped} duplicates skipped)`
+        : `Embedded ${totalInserted} records`;
+      setEmbedResult(msg);
+      setTimeout(() => setEmbedResult(null), 5000);
+    } catch (err: any) {
+      setError(`Embedding failed: ${err.message}`);
+    } finally {
+      setEmbedding(false);
+    }
+  };
+
+  const handleEmbedSelected = () => {
+    const selected = records.filter(r => selectedIds.has(r.id));
+    embedRecords(selected);
+  };
+
+  const handleEmbedAll = async () => {
+    setShowEmbedAllConfirm(false);
+    setEmbedding(true);
+    setError(null);
+
+    try {
+      // Get all records for the filtered dataset, or all datasets
+      let allRecords: DatasetRecord[] = [];
+      if (filterDatasetId) {
+        allRecords = await getAllDatasetRecords(filterDatasetId);
+      } else {
+        // Fetch all records from each dataset
+        for (const ds of datasets) {
+          const dsRecords = await getAllDatasetRecords(ds.id);
+          allRecords.push(...dsRecords);
+        }
+      }
+      setEmbedding(false); // embedRecords sets it again
+      await embedRecords(allRecords);
+    } catch (err: any) {
+      setError(`Failed to load records for embedding: ${err.message}`);
+      setEmbedding(false);
+    }
+  };
+
+  const embedDisabled = !selectedEmbedModel || embedding;
+
   return (
     <div className="h-screen bg-slate-950 flex flex-col overflow-hidden">
+
+      {/* Embed All Confirm Modal */}
+      {showEmbedAllConfirm && (
+        <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-slate-900 border border-amber-900/50 rounded-2xl p-6 max-w-sm shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-2">Embed All Records?</h3>
+            <p className="text-sm text-slate-400 mb-1">
+              This will embed {filterDatasetId ? 'all records from the selected dataset' : `all records from ${datasets.length} dataset(s)`} into the Knowledge Base.
+            </p>
+            <p className="text-xs text-slate-500 mb-6">
+              Duplicates will be automatically skipped.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowEmbedAllConfirm(false)} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
+              <button onClick={handleEmbedAll} className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold transition-colors">Embed All</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="px-6 py-5 border-b border-slate-800 bg-slate-900/20">
@@ -149,15 +297,35 @@ const DatasetRecords = () => {
             </p>
           </div>
 
-          {selectedIds.size > 0 && (
+          <div className="flex items-center gap-2">
+            {selectedIds.size > 0 && (
+              <>
+                <button
+                  onClick={handleEmbedSelected}
+                  disabled={embedDisabled}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-amber-600 rounded-lg hover:bg-amber-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Database size={13} />
+                  Embed Selected ({selectedIds.size})
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-red-600 rounded-lg hover:bg-red-500 transition-colors"
+                >
+                  <Trash2 size={13} />
+                  Delete {selectedIds.size}
+                </button>
+              </>
+            )}
             <button
-              onClick={handleBulkDelete}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-red-600 rounded-lg hover:bg-red-500 transition-colors"
+              onClick={() => setShowEmbedAllConfirm(true)}
+              disabled={embedDisabled || total === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-400 bg-amber-900/20 border border-amber-900/30 rounded-lg hover:bg-amber-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Trash2 size={13} />
-              Delete {selectedIds.size} Selected
+              <Database size={13} />
+              Embed All
             </button>
-          )}
+          </div>
         </div>
 
         {/* Filter Bar */}
@@ -192,8 +360,46 @@ const DatasetRecords = () => {
                 <option key={ds.id} value={ds.id}>{ds.name}</option>
               ))}
             </select>
+
+            <select
+              value={selectedEmbedModel}
+              onChange={e => setSelectedEmbedModel(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:border-amber-500 outline-none"
+            >
+              {embedModels.length === 0 ? (
+                <option value="">No embed model</option>
+              ) : (
+                embedModels.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))
+              )}
+            </select>
           </div>
         </div>
+
+        {/* Progress bar */}
+        {embedding && embedProgress.total > 0 && (
+          <div className="mt-3">
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+              <span>Embedding records...</span>
+              <span className="font-mono">{embedProgress.current} / {embedProgress.total}</span>
+            </div>
+            <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber-500 transition-all duration-300 rounded-full"
+                style={{ width: `${(embedProgress.current / embedProgress.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Embed result message */}
+        {embedResult && (
+          <div className="mt-3 p-2.5 bg-emerald-900/20 border border-emerald-900/50 rounded-lg text-emerald-200 text-xs flex items-center gap-2">
+            <CheckCircle2 size={14} className="shrink-0" />
+            {embedResult}
+          </div>
+        )}
       </div>
 
       {/* Error */}
