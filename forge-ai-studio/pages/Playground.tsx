@@ -18,6 +18,8 @@ import {
   Database,
   Search,
   X,
+  Zap,
+  Wrench,
 } from 'lucide-react';
 import { fetchVLLMModels, streamChatCompletion, ChatCompletionParams } from '../services/vllm';
 import { logChatRequest } from '../services/historyApi';
@@ -26,7 +28,7 @@ import { parseThinkTags, renderMarkdownToHTML } from '../services/markdown';
 import { executeRAGPipeline, RAGResult } from '../services/rag';
 import { getDocumentCount, getStats } from '../services/kbApi';
 import { fetchEmbedModels } from '../services/vllm';
-import { createAgent, updateAgent, AgentConfig, extractVariables } from '../services/agentsApi';
+import { createAgent, updateAgent, AgentConfig, extractVariables, getAvailableTools, ToolInfo } from '../services/agentsApi';
 
 const Playground = () => {
   const location = useLocation();
@@ -81,6 +83,12 @@ const Playground = () => {
   const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null);
   const [loadedAgentName, setLoadedAgentName] = useState<string | null>(null);
 
+  // Agentic Mode State
+  const [agentMode, setAgentMode] = useState<'simple' | 'react' | 'plan-execute'>('simple');
+  const [enabledTools, setEnabledTools] = useState<string[]>([]);
+  const [maxIterations, setMaxIterations] = useState(10);
+  const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
+
   // Timing - use ref to avoid stale closure
   const startTimeRef = useRef<number>(0);
   const [elapsedTime, setElapsedTime] = useState<string>('0ms');
@@ -105,6 +113,9 @@ const Playground = () => {
     fetchEmbedModels().then(models => {
       if (models.length > 0) setEmbedModel(models[0]);
     });
+
+    // Fetch available tools for agentic mode
+    getAvailableTools().then(setAvailableTools).catch(() => {});
   }, []);
 
   // Poll KB doc count and fetch available sources
@@ -146,6 +157,10 @@ const Playground = () => {
       setRagTopK(c.ragTopK ?? 3);
       setRagThreshold(c.ragThreshold ?? 0.3);
       setRagSources(c.ragSources ?? []);
+      // Agentic fields
+      setAgentMode(c.agentMode ?? 'simple');
+      setEnabledTools(c.enabledTools ?? []);
+      setMaxIterations(c.maxIterations ?? 10);
       if (c.promptTemplate) setPrompt(c.promptTemplate);
       if (state.agentId) setLoadedAgentId(state.agentId);
       if (state.agentName) setLoadedAgentName(state.agentName);
@@ -181,6 +196,10 @@ const Playground = () => {
       label: name.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()),
       defaultValue: '',
     })),
+    // Agentic fields
+    agentMode,
+    enabledTools,
+    maxIterations,
   });
 
   const handleSavePreset = async () => {
@@ -581,6 +600,73 @@ const Playground = () => {
             </section>
           )}
 
+          {/* Agentic Mode */}
+          <section className="pt-4 border-t border-slate-800">
+            <label className="flex items-center gap-3 cursor-pointer mb-3">
+              <div className={`w-10 h-5 rounded-full relative transition-colors ${agentMode === 'react' ? 'bg-blue-600' : 'bg-slate-700'}`}
+                onClick={() => setAgentMode(agentMode === 'react' ? 'simple' : 'react')}>
+                <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${agentMode === 'react' ? 'left-6' : 'left-1'}`} />
+              </div>
+              <span className="text-sm text-slate-300 font-medium flex items-center gap-1.5">
+                <Zap size={14} className={agentMode === 'react' ? 'text-blue-400' : 'text-slate-500'} />
+                Agentic Mode (ReAct)
+              </span>
+              {agentMode === 'react' && enabledTools.length > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-400 border border-blue-900/50">
+                  {enabledTools.length} tools
+                </span>
+              )}
+            </label>
+
+            {agentMode === 'react' && (
+              <div className="bg-blue-900/10 border border-blue-900/30 rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Wrench size={14} className="text-blue-400" />
+                  <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">Tool Selection</span>
+                  <span className="text-[10px] text-slate-500 ml-auto">
+                    Agent will use tools to reason & act
+                  </span>
+                </div>
+
+                {availableTools.length > 0 ? (
+                  <div className="space-y-2">
+                    {availableTools.map(tool => {
+                      const isSelected = enabledTools.includes(tool.name);
+                      return (
+                        <label key={tool.name} className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-slate-800/30 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {
+                              setEnabledTools(prev =>
+                                isSelected ? prev.filter(t => t !== tool.name) : [...prev, tool.name]
+                              );
+                            }}
+                            className="mt-0.5 accent-blue-500"
+                          />
+                          <div>
+                            <span className="text-xs text-slate-200 font-medium">{tool.name}</span>
+                            <p className="text-[10px] text-slate-500 mt-0.5">{tool.description}</p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500">Loading available tools...</p>
+                )}
+
+                <div className="flex items-center gap-2 pt-2 border-t border-blue-900/20">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase shrink-0">Max Iterations</span>
+                  <input type="range" min="1" max="20" step="1"
+                    value={maxIterations} onChange={(e) => setMaxIterations(parseInt(e.target.value))}
+                    className="flex-1 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                  <span className="text-xs text-blue-400 font-mono w-4 text-right">{maxIterations}</span>
+                </div>
+              </div>
+            )}
+          </section>
+
           {/* Core Model Params */}
           <section className="space-y-6 pt-4 border-t border-slate-800">
             <div className="flex items-center justify-between mb-2">
@@ -928,6 +1014,22 @@ const Playground = () => {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+              {/* Agentic Mode Info */}
+              {agentMode === 'react' && enabledTools.length > 0 && (
+                <div className="bg-blue-900/10 border border-blue-900/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2 text-xs text-blue-400">
+                    <Zap size={12} />
+                    <span className="font-medium">Agentic Mode: ReAct</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    <span className="text-[10px] text-slate-500">Tools:</span>
+                    {enabledTools.map(t => (
+                      <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700/50">{t}</span>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">Max {maxIterations} iterations</p>
                 </div>
               )}
               <div className="flex gap-3 pt-2">

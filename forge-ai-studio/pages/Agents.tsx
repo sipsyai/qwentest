@@ -15,9 +15,24 @@ import {
   Copy,
   CheckCircle2,
   Sparkles,
+  Wrench,
+  Search,
+  Globe,
+  ChevronDown,
+  ChevronRight,
+  Zap,
+  RotateCcw,
 } from 'lucide-react';
-import { getAgents, deleteAgent, runAgent, Agent } from '../services/agentsApi';
+import { getAgents, deleteAgent, runAgent, runAgentAgentic, Agent, AgentStep } from '../services/agentsApi';
 import { parseThinkTags, renderMarkdownToHTML } from '../services/markdown';
+
+// Tool icon mapping
+const toolIcons: Record<string, React.ReactNode> = {
+  kb_search: <Search size={12} className="text-amber-400" />,
+  dataset_query: <Database size={12} className="text-emerald-400" />,
+  web_fetch: <Globe size={12} className="text-blue-400" />,
+  sub_agent: <Bot size={12} className="text-purple-400" />,
+};
 
 const Agents = () => {
   const navigate = useNavigate();
@@ -34,6 +49,14 @@ const Agents = () => {
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
+
+  // Agentic execution state
+  const [steps, setSteps] = useState<AgentStep[]>([]);
+  const [currentIteration, setCurrentIteration] = useState(0);
+  const [maxIterations, setMaxIterations] = useState(10);
+  const [isAgenticMode, setIsAgenticMode] = useState(false);
+  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
+  const [doneInfo, setDoneInfo] = useState<{ iterations: number; tools_used: string[]; total_tool_calls: number } | null>(null);
 
   const fetchAgents = async () => {
     try {
@@ -55,7 +78,7 @@ const Agents = () => {
     if (outputRef.current && isRunning) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [runOutput, isRunning]);
+  }, [runOutput, isRunning, steps]);
 
   const handleRun = (agent: Agent) => {
     const c = agent.config;
@@ -70,6 +93,11 @@ const Agents = () => {
     setRunOutput('');
     setRunError(null);
     setCopied(false);
+    setSteps([]);
+    setCurrentIteration(0);
+    setDoneInfo(null);
+    const agenticCheck = c.agentMode === 'react' && c.enabledTools?.length > 0;
+    setIsAgenticMode(agenticCheck);
 
     // Pre-fill variable defaults
     const defaults: Record<string, string> = {};
@@ -82,14 +110,21 @@ const Agents = () => {
 
     // If no variables, auto-start
     if (!c.variables || c.variables.length === 0) {
-      startRun(agent, defaults);
+      if (agenticCheck) {
+        startAgenticRun(agent, defaults);
+      } else {
+        startRun(agent, defaults);
+      }
     }
   };
 
+  // Simple mode run (backward compatible)
   const startRun = (agent: Agent, vars: Record<string, string>) => {
     setIsRunning(true);
     setRunOutput('');
     setRunError(null);
+    setSteps([]);
+    setDoneInfo(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -111,6 +146,71 @@ const Agents = () => {
     );
   };
 
+  // Agentic mode run with step tracking
+  const startAgenticRun = (agent: Agent, vars: Record<string, string>) => {
+    setIsRunning(true);
+    setRunOutput('');
+    setRunError(null);
+    setSteps([]);
+    setCurrentIteration(0);
+    setDoneInfo(null);
+    setExpandedSteps(new Set());
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    runAgentAgentic(
+      agent.id,
+      vars,
+      {
+        onAgentStart: (data) => {
+          setMaxIterations(data.max_iterations);
+          setSteps(prev => [...prev, { type: 'agent_start', data, timestamp: Date.now() }]);
+        },
+        onIterationStart: (data) => {
+          setCurrentIteration(data.iteration);
+          setSteps(prev => [...prev, { type: 'iteration_start', data, timestamp: Date.now() }]);
+        },
+        onToolCall: (data) => {
+          setSteps(prev => {
+            const newSteps = [...prev, { type: 'tool_call' as const, data, timestamp: Date.now() }];
+            setExpandedSteps(es => new Set([...es, newSteps.length - 1]));
+            return newSteps;
+          });
+        },
+        onToolResult: (data) => {
+          setSteps(prev => [...prev, { type: 'tool_result' as const, data, timestamp: Date.now() }]);
+        },
+        onFinalAnswerStart: (data) => {
+          setSteps(prev => [...prev, { type: 'final_answer_start' as const, data, timestamp: Date.now() }]);
+        },
+        onStream: (data) => {
+          setRunOutput(prev => prev + data.content);
+        },
+        onAgentDone: (data) => {
+          setDoneInfo(data);
+          setSteps(prev => [...prev, { type: 'agent_done' as const, data, timestamp: Date.now() }]);
+          setIsRunning(false);
+          abortRef.current = null;
+        },
+        onError: (data) => {
+          setRunError(data.message);
+          setSteps(prev => [...prev, { type: 'error' as const, data, timestamp: Date.now() }]);
+          setIsRunning(false);
+          abortRef.current = null;
+        },
+        onChunk: (chunk) => {
+          setRunOutput(prev => prev + chunk);
+        },
+        onComplete: () => {
+          setIsRunning(false);
+          abortRef.current = null;
+        },
+      },
+      controller.signal,
+    );
+  };
+
   const handleStop = () => {
     if (abortRef.current) {
       abortRef.current.abort();
@@ -125,6 +225,8 @@ const Agents = () => {
     setRunOutput('');
     setRunError(null);
     setVariableInputs({});
+    setSteps([]);
+    setDoneInfo(null);
   };
 
   const handleCopyOutput = () => {
@@ -150,6 +252,15 @@ const Agents = () => {
     }
   };
 
+  const toggleStepExpanded = (index: number) => {
+    setExpandedSteps(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -157,6 +268,118 @@ const Agents = () => {
       </div>
     );
   }
+
+  // Render step-by-step execution viewer
+  const renderSteps = () => {
+    if (steps.length === 0) return null;
+
+    return (
+      <div className="space-y-1.5 mb-3">
+        {steps.map((step, i) => {
+          switch (step.type) {
+            case 'agent_start':
+              return (
+                <div key={i} className="flex items-center gap-2 text-[11px] text-slate-500">
+                  <Zap size={11} className="text-blue-400" />
+                  <span>Agent started in <span className="text-blue-400 font-medium">{step.data.mode}</span> mode</span>
+                  {step.data.tools?.length > 0 && (
+                    <span className="text-slate-600">({step.data.tools.length} tools)</span>
+                  )}
+                </div>
+              );
+
+            case 'iteration_start':
+              return (
+                <div key={i} className="flex items-center gap-2 text-[11px] text-slate-500 mt-2">
+                  <RotateCcw size={10} className="text-slate-500" />
+                  <span className="font-medium">Iteration {step.data.iteration}/{maxIterations}</span>
+                </div>
+              );
+
+            case 'tool_call': {
+              const isExpanded = expandedSteps.has(i);
+              const resultStep = steps.find(
+                (s, j) => j > i && s.type === 'tool_result' && s.data.call_id === step.data.call_id
+              );
+
+              return (
+                <div key={i} className="bg-slate-800/50 border border-slate-700/50 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => toggleStepExpanded(i)}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-slate-800/80 transition-colors"
+                  >
+                    {isExpanded ? <ChevronDown size={12} className="text-slate-500" /> : <ChevronRight size={12} className="text-slate-500" />}
+                    {toolIcons[step.data.tool] || <Wrench size={12} className="text-slate-400" />}
+                    <span className="text-xs font-medium text-slate-300">{step.data.tool}</span>
+                    <span className="text-[10px] text-slate-500 font-mono truncate flex-1">
+                      {JSON.stringify(step.data.args).slice(0, 80)}
+                    </span>
+                    {resultStep ? (
+                      <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
+                    ) : (
+                      <Loader2 size={11} className="text-blue-400 animate-spin shrink-0" />
+                    )}
+                  </button>
+                  {isExpanded && (
+                    <div className="px-3 pb-2 space-y-2 border-t border-slate-700/30">
+                      <div className="mt-2">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Arguments</p>
+                        <pre className="text-[11px] text-slate-400 font-mono bg-slate-950/50 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                          {JSON.stringify(step.data.args, null, 2)}
+                        </pre>
+                      </div>
+                      {resultStep && (
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Result</p>
+                          <pre className="text-[11px] text-slate-400 font-mono bg-slate-950/50 rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto">
+                            {resultStep.data.result}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            case 'tool_result':
+              return null;
+
+            case 'final_answer_start':
+              return (
+                <div key={i} className="flex items-center gap-2 text-[11px] text-emerald-400 mt-2">
+                  <Sparkles size={11} />
+                  <span className="font-medium">Generating final answer...</span>
+                </div>
+              );
+
+            case 'agent_done':
+              return (
+                <div key={i} className="flex items-center gap-2 text-[11px] text-slate-500 mt-1 pt-1 border-t border-slate-800">
+                  <CheckCircle2 size={11} className="text-emerald-500" />
+                  <span>
+                    Completed in {step.data.iterations} iteration{step.data.iterations > 1 ? 's' : ''}
+                    {step.data.total_tool_calls > 0 && (
+                      <span className="text-slate-600"> | {step.data.total_tool_calls} tool call{step.data.total_tool_calls > 1 ? 's' : ''}</span>
+                    )}
+                  </span>
+                </div>
+              );
+
+            case 'error':
+              return (
+                <div key={i} className="bg-red-900/20 border border-red-900/50 rounded-lg px-3 py-2 text-xs text-red-300">
+                  {step.data.message}
+                </div>
+              );
+
+            default:
+              return null;
+          }
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -168,7 +391,7 @@ const Agents = () => {
             Agents
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Saved Playground configurations. Run or edit anytime.
+            Saved Playground configurations with agentic tool support. Run or edit anytime.
           </p>
         </div>
         <button
@@ -193,6 +416,7 @@ const Agents = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {agents.map(agent => {
           const c = agent.config;
+          const isAgentic = c.agentMode === 'react' && c.enabledTools?.length > 0;
           return (
             <div
               key={agent.id}
@@ -201,7 +425,14 @@ const Agents = () => {
               {/* Card Header */}
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-white font-semibold text-base truncate">{agent.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-white font-semibold text-base truncate">{agent.name}</h3>
+                    {isAgentic && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-400 border border-blue-900/50 font-medium">
+                        AGENTIC
+                      </span>
+                    )}
+                  </div>
                   {agent.description && (
                     <p className="text-xs text-slate-400 mt-1 line-clamp-2">{agent.description}</p>
                   )}
@@ -242,6 +473,24 @@ const Agents = () => {
                   max {c.maxTokens}
                 </span>
               </div>
+
+              {/* Tools (Agentic) */}
+              {isAgentic && (
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase mr-1 self-center">Tools:</span>
+                  {c.enabledTools.map(tool => (
+                    <span key={tool} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700/50">
+                      {toolIcons[tool] || <Wrench size={10} />}
+                      {tool}
+                    </span>
+                  ))}
+                  {c.maxIterations && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-500 border border-slate-700/50">
+                      max {c.maxIterations} iter
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Prompt Template Preview */}
               {c.promptTemplate && (
@@ -316,6 +565,16 @@ const Agents = () => {
                 <div className="flex items-center gap-2">
                   <Play size={16} className="text-blue-400 fill-current shrink-0" />
                   <h3 className="text-white font-semibold truncate">Run: {runningAgent.name}</h3>
+                  {isAgenticMode && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-400 border border-blue-900/50 font-medium shrink-0">
+                      AGENTIC
+                    </span>
+                  )}
+                  {isRunning && currentIteration > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono shrink-0">
+                      iter {currentIteration}/{maxIterations}
+                    </span>
+                  )}
                 </div>
                 {runningAgent.description && (
                   <p className="text-xs text-slate-400 mt-1 truncate">{runningAgent.description}</p>
@@ -359,17 +618,27 @@ const Agents = () => {
                 </div>
               )}
 
-              {/* Error */}
-              {runError && (
+              {/* Error (simple mode) */}
+              {runError && !isAgenticMode && (
                 <div className="bg-red-900/20 border border-red-900/50 p-3 rounded-lg text-red-200 text-sm">
                   {runError}
+                </div>
+              )}
+
+              {/* Agentic Execution Steps */}
+              {isAgenticMode && steps.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Execution Steps</p>
+                  {renderSteps()}
                 </div>
               )}
 
               {/* Output */}
               {(runOutput || isRunning) && (
                 <div>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Output</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    {isAgenticMode ? 'Final Answer' : 'Output'}
+                  </p>
                   <div
                     ref={outputRef}
                     className="bg-slate-950 border border-slate-800 rounded-lg p-4 max-h-[40vh] overflow-y-auto"
@@ -399,6 +668,29 @@ const Agents = () => {
                   </div>
                 </div>
               )}
+
+              {/* Done Summary (Agentic) */}
+              {doneInfo && (
+                <div className="bg-emerald-900/10 border border-emerald-900/30 rounded-lg px-4 py-3">
+                  <div className="flex items-center gap-2 text-xs text-emerald-400">
+                    <CheckCircle2 size={14} />
+                    <span className="font-medium">
+                      Agent completed in {doneInfo.iterations} iteration{doneInfo.iterations > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  {doneInfo.tools_used.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      <span className="text-[10px] text-slate-500">Tools used:</span>
+                      {[...new Set(doneInfo.tools_used)].map(tool => (
+                        <span key={tool} className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700/50">
+                          {toolIcons[tool] || <Wrench size={10} />}
+                          {tool}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Modal Footer */}
@@ -413,7 +705,13 @@ const Agents = () => {
                   </button>
                 ) : (
                   <button
-                    onClick={() => startRun(runningAgent, variableInputs)}
+                    onClick={() => {
+                      if (isAgenticMode) {
+                        startAgenticRun(runningAgent, variableInputs);
+                      } else {
+                        startRun(runningAgent, variableInputs);
+                      }
+                    }}
                     className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors"
                   >
                     <Play size={12} className="fill-current" /> {runOutput ? 'Re-run' : 'Run'}

@@ -235,3 +235,12 @@ class AgentListResponse(BaseModel):
 class AgentRunRequest(BaseModel):
     variables: dict[str, str] = {}
     stream: Optional[bool] = None  # None = use agent config default
+
+
+class AgentToolInfo(BaseModel):
+    name: str
+    description: str
+
+
+class AgentToolsResponse(BaseModel):
+    tools: list[AgentToolInfo]
