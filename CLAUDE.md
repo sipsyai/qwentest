@@ -30,7 +30,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **Models**: Model listesi ve detaylari
 - **ModelDetail**: Tek model detay sayfasi
 - **Embeddings**: Embedding olusturma + Knowledge Base kaydetme
-- **Datasets**: Generic REST API connector, JSON drill-down explorer, array→tablo gorunum, save selected, field extraction config (array_path + extract_fields), extract & save all, manual fetch
+- **Datasets**: Generic REST API connector, manual JSON paste (no API needed), JSON drill-down explorer, array→tablo gorunum, save selected, field extraction config (array_path + extract_fields), extract & save all, manual fetch
 - **DatasetRecords**: Kaydedilen dataset kayitlari (/dataset-records), filter, search, tablo gorunumu (otomatik kolon turetme)
 - **History**: Istek gecmisi goruntuleme
 - **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu

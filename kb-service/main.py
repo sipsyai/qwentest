@@ -370,12 +370,19 @@ async def clear_history(session: AsyncSession = Depends(get_session)):
 
 
 def _row_to_dataset_response(row) -> DatasetResponse:
+    raw = getattr(row, 'raw_data', None)
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = None
     return DatasetResponse(
         id=str(row.id), name=row.name, url=row.url, method=row.method,
         token=row.token,
         headers=row.headers if isinstance(row.headers, dict) else json.loads(row.headers or '{}'),
         array_path=row.array_path or '',
         extract_fields=row.extract_fields if isinstance(row.extract_fields, list) else json.loads(row.extract_fields or '[]'),
+        raw_data=raw,
         created_at=row.created_at, updated_at=row.updated_at,
     )
 
@@ -383,7 +390,7 @@ def _row_to_dataset_response(row) -> DatasetResponse:
 @app.get("/api/kb/datasets", response_model=DatasetListResponse)
 async def list_datasets(session: AsyncSession = Depends(get_session)):
     result = await session.execute(text(
-        "SELECT id, name, url, method, token, headers, array_path, extract_fields, created_at, updated_at "
+        "SELECT id, name, url, method, token, headers, array_path, extract_fields, raw_data, created_at, updated_at "
         "FROM datasets ORDER BY created_at DESC"
     ))
     rows = result.fetchall()
@@ -396,19 +403,20 @@ async def create_dataset(req: DatasetCreate, session: AsyncSession = Depends(get
     ds_id = str(uuid.uuid4())
     await session.execute(
         text("""
-            INSERT INTO datasets (id, name, url, method, token, headers, array_path, extract_fields)
-            VALUES (:id, :name, :url, :method, :token, CAST(:headers AS jsonb), :array_path, CAST(:extract_fields AS jsonb))
+            INSERT INTO datasets (id, name, url, method, token, headers, array_path, extract_fields, raw_data)
+            VALUES (:id, :name, :url, :method, :token, CAST(:headers AS jsonb), :array_path, CAST(:extract_fields AS jsonb), CAST(:raw_data AS jsonb))
         """),
         {
             "id": ds_id, "name": req.name, "url": req.url, "method": req.method,
             "token": req.token, "headers": json.dumps(req.headers),
             "array_path": req.array_path, "extract_fields": json.dumps(req.extract_fields),
+            "raw_data": json.dumps(req.raw_data) if req.raw_data is not None else None,
         }
     )
     await session.commit()
 
     result = await session.execute(
-        text("SELECT id, name, url, method, token, headers, array_path, extract_fields, created_at, updated_at FROM datasets WHERE id = :id"),
+        text("SELECT id, name, url, method, token, headers, array_path, extract_fields, raw_data, created_at, updated_at FROM datasets WHERE id = :id"),
         {"id": ds_id}
     )
     row = result.fetchone()
@@ -440,6 +448,9 @@ async def update_dataset(ds_id: str, req: DatasetUpdate, session: AsyncSession =
     if req.extract_fields is not None:
         updates["extract_fields"] = "extract_fields = CAST(:extract_fields AS jsonb)"
         params["extract_fields"] = json.dumps(req.extract_fields)
+    if req.raw_data is not None:
+        updates["raw_data"] = "raw_data = CAST(:raw_data AS jsonb)"
+        params["raw_data"] = json.dumps(req.raw_data)
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -455,7 +466,7 @@ async def update_dataset(ds_id: str, req: DatasetUpdate, session: AsyncSession =
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     result = await session.execute(
-        text("SELECT id, name, url, method, token, headers, array_path, extract_fields, created_at, updated_at FROM datasets WHERE id = :id"),
+        text("SELECT id, name, url, method, token, headers, array_path, extract_fields, raw_data, created_at, updated_at FROM datasets WHERE id = :id"),
         {"id": ds_id}
     )
     row = result.fetchone()

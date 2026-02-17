@@ -13,18 +13,20 @@ export interface Dataset {
   headers: Record<string, string>;
   array_path: string;
   extract_fields: string[];
+  raw_data: any | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface DatasetCreate {
   name: string;
-  url: string;
+  url?: string;
   method?: string;
   token?: string;
   headers?: Record<string, string>;
   array_path?: string;
   extract_fields?: string[];
+  raw_data?: any;
 }
 
 export interface DatasetUpdate {
@@ -35,6 +37,7 @@ export interface DatasetUpdate {
   headers?: Record<string, string>;
   array_path?: string;
   extract_fields?: string[];
+  raw_data?: any;
 }
 
 export interface FetchResult {

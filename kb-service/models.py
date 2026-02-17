@@ -119,12 +119,13 @@ class HistoryListResponse(BaseModel):
 
 class DatasetCreate(BaseModel):
     name: str
-    url: str
+    url: str = ""
     method: str = "GET"
     token: str = ""
     headers: dict = {}
     array_path: str = ""
     extract_fields: list = []
+    raw_data: Optional[Any] = None
 
 
 class DatasetUpdate(BaseModel):
@@ -135,6 +136,7 @@ class DatasetUpdate(BaseModel):
     headers: Optional[dict] = None
     array_path: Optional[str] = None
     extract_fields: Optional[list] = None
+    raw_data: Optional[Any] = None
 
 
 class DatasetResponse(BaseModel):
@@ -146,6 +148,7 @@ class DatasetResponse(BaseModel):
     headers: dict
     array_path: str
     extract_fields: list
+    raw_data: Optional[Any] = None
     created_at: datetime
     updated_at: datetime
 

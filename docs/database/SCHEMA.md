@@ -86,6 +86,7 @@ Kullanicinin ekledigi REST API dataset kaynaklari.
 | `headers` | JSONB | DEFAULT '{}' | Custom HTTP headers |
 | `array_path` | TEXT | NOT NULL, DEFAULT '' | JSON array path (orn. "data.items") - field extraction icin |
 | `extract_fields` | JSONB | NOT NULL, DEFAULT '[]' | Cikarilacak alan isimleri listesi (orn. ["name","id"]) |
+| `raw_data` | JSONB | DEFAULT NULL | Manually pasted JSON data (for MANUAL method datasets) |
 | `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Olusturulma zamani |
 | `updated_at` | TIMESTAMPTZ | DEFAULT NOW() | Son guncelleme zamani |
 

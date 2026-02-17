@@ -3,6 +3,18 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.10.0] - 2026-02-17
+
+### Added
+- Manual JSON dataset source: paste JSON directly without needing an API endpoint
+- Source type picker dropdown (API Endpoint / Manual JSON) on "+" button
+- `raw_data` JSONB column to datasets table (stores manually pasted JSON)
+
+### Changed
+- Dataset cards show purple "JSON" badge for manual datasets
+- datasetsApi.ts: raw_data field in Dataset, DatasetCreate, DatasetUpdate interfaces
+- kb-service: raw_data in all dataset SELECT/INSERT/UPDATE queries + _row_to_dataset_response
+
 ## [0.9.0] - 2026-02-17
 
 ### Added

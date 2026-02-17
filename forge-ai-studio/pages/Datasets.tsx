@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Database, Plus, Pencil, Trash2, RefreshCw, ChevronRight, ChevronDown,
   AlertCircle, CheckCircle2, Globe, Lock, Send, Save, X, Loader2,
-  CheckSquare, Square, ArrowLeft, Braces, List, Settings, Download
+  CheckSquare, Square, ArrowLeft, Braces, List, Settings, Download,
+  FileJson, Clipboard
 } from 'lucide-react';
 import {
   getDatasets, createDataset, updateDataset, deleteDataset,
@@ -76,12 +77,18 @@ const Datasets = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingDataset, setEditingDataset] = useState<Dataset | null>(null);
 
+  // Source type picker
+  const [showSourcePicker, setShowSourcePicker] = useState(false);
+  const [formMode, setFormMode] = useState<'api' | 'manual'>('api');
+
   // Form fields
   const [formName, setFormName] = useState('');
   const [formUrl, setFormUrl] = useState('');
   const [formMethod, setFormMethod] = useState('GET');
   const [formToken, setFormToken] = useState('');
   const [formHeaders, setFormHeaders] = useState<HeaderPair[]>([]);
+  const [formRawJson, setFormRawJson] = useState('');
+  const [formJsonError, setFormJsonError] = useState<string | null>(null);
   const [formSaving, setFormSaving] = useState(false);
 
   // Explorer state
@@ -122,17 +129,28 @@ const Datasets = () => {
     setFormMethod('GET');
     setFormToken('');
     setFormHeaders([]);
+    setFormRawJson('');
+    setFormJsonError(null);
     setEditingDataset(null);
     setShowForm(false);
+    setShowSourcePicker(false);
   };
 
   const openCreateForm = () => {
     resetForm();
+    setShowSourcePicker(true);
+  };
+
+  const pickSource = (mode: 'api' | 'manual') => {
+    setFormMode(mode);
+    setShowSourcePicker(false);
     setShowForm(true);
   };
 
   const openEditForm = (ds: Dataset) => {
     setEditingDataset(ds);
+    const isManual = ds.method === 'MANUAL';
+    setFormMode(isManual ? 'manual' : 'api');
     setFormName(ds.name);
     setFormUrl(ds.url);
     setFormMethod(ds.method);
@@ -140,11 +158,29 @@ const Datasets = () => {
     setFormHeaders(
       Object.entries(ds.headers || {}).map(([key, value]) => ({ key, value }))
     );
+    setFormRawJson(isManual && ds.raw_data ? JSON.stringify(ds.raw_data, null, 2) : '');
+    setFormJsonError(null);
+    setShowSourcePicker(false);
     setShowForm(true);
   };
 
   const handleSaveDataset = async () => {
-    if (!formName.trim() || !formUrl.trim()) return;
+    if (!formName.trim()) return;
+    if (formMode === 'api' && !formUrl.trim()) return;
+
+    // Validate JSON for manual mode
+    let parsedJson: any = null;
+    if (formMode === 'manual') {
+      if (!formRawJson.trim()) { setFormJsonError('JSON cannot be empty'); return; }
+      try {
+        parsedJson = JSON.parse(formRawJson);
+        setFormJsonError(null);
+      } catch (e: any) {
+        setFormJsonError(`Invalid JSON: ${e.message}`);
+        return;
+      }
+    }
+
     setFormSaving(true);
 
     const headersObj: Record<string, string> = {};
@@ -154,24 +190,16 @@ const Datasets = () => {
 
     try {
       if (editingDataset) {
-        const updates: DatasetUpdate = {
-          name: formName.trim(),
-          url: formUrl.trim(),
-          method: formMethod,
-          token: formToken,
-          headers: headersObj,
-        };
+        const updates: DatasetUpdate = formMode === 'manual'
+          ? { name: formName.trim(), raw_data: parsedJson }
+          : { name: formName.trim(), url: formUrl.trim(), method: formMethod, token: formToken, headers: headersObj };
         const updated = await updateDataset(editingDataset.id, updates);
         setDatasets(prev => prev.map(d => d.id === updated.id ? updated : d));
         if (selectedDataset?.id === updated.id) setSelectedDataset(updated);
       } else {
-        const payload: DatasetCreate = {
-          name: formName.trim(),
-          url: formUrl.trim(),
-          method: formMethod,
-          token: formToken,
-          headers: headersObj,
-        };
+        const payload: DatasetCreate = formMode === 'manual'
+          ? { name: formName.trim(), url: '', method: 'MANUAL', raw_data: parsedJson }
+          : { name: formName.trim(), url: formUrl.trim(), method: formMethod, token: formToken, headers: headersObj };
         const created = await createDataset(payload);
         setDatasets(prev => [created, ...prev]);
       }
@@ -209,8 +237,19 @@ const Datasets = () => {
     setShowFieldConfig(false);
     setFieldCandidates([]);
     setSelectedFields(new Set(ds.extract_fields || []));
-    setFetchLoading(true);
 
+    // Manual datasets: load raw_data directly
+    if (ds.method === 'MANUAL') {
+      if (ds.raw_data !== null && ds.raw_data !== undefined) {
+        setFetchedJson(ds.raw_data);
+        if (ds.array_path) setJsonPath(ds.array_path.split('.'));
+      } else {
+        setFetchError('No data stored. Edit dataset to paste JSON.');
+      }
+      return;
+    }
+
+    setFetchLoading(true);
     try {
       const result = await fetchDatasetUrl(ds.id);
       setFetchedJson(result.data);
@@ -426,24 +465,73 @@ const Datasets = () => {
         <div className="p-6 border-b border-slate-800 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white mb-1">Datasets</h1>
-            <p className="text-slate-400 text-xs">Connect to any REST API</p>
+            <p className="text-slate-400 text-xs">API or manual JSON</p>
           </div>
-          <button
-            onClick={openCreateForm}
-            className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
-            title="Add Dataset"
-          >
-            <Plus size={18} />
-          </button>
+          <div className="relative">
+            <button
+              onClick={openCreateForm}
+              className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+              title="Add Dataset"
+            >
+              <Plus size={18} />
+            </button>
+
+            {/* Source Type Picker Dropdown */}
+            {showSourcePicker && (
+              <div className="absolute right-0 top-full mt-2 w-52 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                <button
+                  onClick={() => pickSource('api')}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-700/50 transition-colors"
+                >
+                  <div className="p-1.5 bg-blue-900/30 rounded-lg">
+                    <Globe size={16} className="text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white">API Endpoint</p>
+                    <p className="text-[10px] text-slate-400">Fetch from REST API</p>
+                  </div>
+                </button>
+                <div className="h-px bg-slate-700" />
+                <button
+                  onClick={() => pickSource('manual')}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-700/50 transition-colors"
+                >
+                  <div className="p-1.5 bg-purple-900/30 rounded-lg">
+                    <FileJson size={16} className="text-purple-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white">Manual JSON</p>
+                    <p className="text-[10px] text-slate-400">Paste JSON directly</p>
+                  </div>
+                </button>
+                <div className="h-px bg-slate-700" />
+                <button
+                  onClick={() => setShowSourcePicker(false)}
+                  className="w-full px-4 py-2 text-center text-xs text-slate-500 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Dataset Form (inline) */}
         {showForm && (
           <div className="p-4 border-b border-slate-800 bg-slate-800/30 space-y-3">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold text-slate-400 uppercase">
-                {editingDataset ? 'Edit Dataset' : 'New Dataset'}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-400 uppercase">
+                  {editingDataset ? 'Edit' : 'New'}
+                </span>
+                <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                  formMode === 'manual'
+                    ? 'bg-purple-900/30 text-purple-400'
+                    : 'bg-blue-900/30 text-blue-400'
+                }`}>
+                  {formMode === 'manual' ? 'MANUAL' : 'API'}
+                </span>
+              </div>
               <button onClick={resetForm} className="text-slate-500 hover:text-white transition-colors">
                 <X size={16} />
               </button>
@@ -457,86 +545,138 @@ const Datasets = () => {
               className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none"
             />
 
-            <input
-              type="text"
-              placeholder="https://api.example.com/data"
-              value={formUrl}
-              onChange={e => setFormUrl(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none font-mono"
-            />
+            {formMode === 'api' ? (
+              <>
+                <input
+                  type="text"
+                  placeholder="https://api.example.com/data"
+                  value={formUrl}
+                  onChange={e => setFormUrl(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none font-mono"
+                />
 
-            <div className="flex gap-2">
-              {['GET', 'POST'].map(m => (
-                <button
-                  key={m}
-                  onClick={() => setFormMethod(m)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded transition-colors ${
-                    formMethod === m
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
+                <div className="flex gap-2">
+                  {['GET', 'POST'].map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setFormMethod(m)}
+                      className={`px-3 py-1.5 text-xs font-bold rounded transition-colors ${
+                        formMethod === m
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
 
-            <input
-              type="password"
-              placeholder="Bearer Token (optional)"
-              value={formToken}
-              onChange={e => setFormToken(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none font-mono"
-            />
+                <input
+                  type="password"
+                  placeholder="Bearer Token (optional)"
+                  value={formToken}
+                  onChange={e => setFormToken(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-blue-500 outline-none font-mono"
+                />
 
-            {/* Headers */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Headers</span>
-                <button
-                  onClick={() => setFormHeaders(prev => [...prev, { key: '', value: '' }])}
-                  className="text-[10px] text-blue-400 hover:text-blue-300"
-                >
-                  + Add
-                </button>
-              </div>
-              {formHeaders.map((h, i) => (
-                <div key={i} className="flex gap-1 mb-1">
-                  <input
-                    type="text"
-                    placeholder="Key"
-                    value={h.key}
-                    onChange={e => {
-                      const copy = [...formHeaders];
-                      copy[i] = { ...copy[i], key: e.target.value };
-                      setFormHeaders(copy);
-                    }}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[10px] text-white outline-none font-mono"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Value"
-                    value={h.value}
-                    onChange={e => {
-                      const copy = [...formHeaders];
-                      copy[i] = { ...copy[i], value: e.target.value };
-                      setFormHeaders(copy);
-                    }}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[10px] text-white outline-none font-mono"
-                  />
+                {/* Headers */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Headers</span>
+                    <button
+                      onClick={() => setFormHeaders(prev => [...prev, { key: '', value: '' }])}
+                      className="text-[10px] text-blue-400 hover:text-blue-300"
+                    >
+                      + Add
+                    </button>
+                  </div>
+                  {formHeaders.map((h, i) => (
+                    <div key={i} className="flex gap-1 mb-1">
+                      <input
+                        type="text"
+                        placeholder="Key"
+                        value={h.key}
+                        onChange={e => {
+                          const copy = [...formHeaders];
+                          copy[i] = { ...copy[i], key: e.target.value };
+                          setFormHeaders(copy);
+                        }}
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[10px] text-white outline-none font-mono"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Value"
+                        value={h.value}
+                        onChange={e => {
+                          const copy = [...formHeaders];
+                          copy[i] = { ...copy[i], value: e.target.value };
+                          setFormHeaders(copy);
+                        }}
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[10px] text-white outline-none font-mono"
+                      />
+                      <button
+                        onClick={() => setFormHeaders(prev => prev.filter((_, j) => j !== i))}
+                        className="text-slate-600 hover:text-red-400 px-1"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              /* Manual JSON Mode */
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">JSON Data</span>
                   <button
-                    onClick={() => setFormHeaders(prev => prev.filter((_, j) => j !== i))}
-                    className="text-slate-600 hover:text-red-400 px-1"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        setFormRawJson(text);
+                        // Validate immediately
+                        JSON.parse(text);
+                        setFormJsonError(null);
+                      } catch {
+                        // clipboard may fail, ignore
+                      }
+                    }}
+                    className="flex items-center gap-1 text-[10px] text-purple-400 hover:text-purple-300 transition-colors"
+                    title="Paste from clipboard"
                   >
-                    <X size={12} />
+                    <Clipboard size={10} /> Paste
                   </button>
                 </div>
-              ))}
-            </div>
+                <textarea
+                  placeholder='{"key": "value"} or [{"id": 1}, ...]'
+                  value={formRawJson}
+                  onChange={e => {
+                    setFormRawJson(e.target.value);
+                    if (e.target.value.trim()) {
+                      try { JSON.parse(e.target.value); setFormJsonError(null); } catch (err: any) { setFormJsonError(err.message); }
+                    } else {
+                      setFormJsonError(null);
+                    }
+                  }}
+                  rows={8}
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs text-white focus:border-purple-500 outline-none font-mono resize-y leading-relaxed"
+                />
+                {formJsonError && (
+                  <p className="text-[10px] text-red-400 flex items-center gap-1">
+                    <AlertCircle size={10} /> {formJsonError}
+                  </p>
+                )}
+                {formRawJson.trim() && !formJsonError && (
+                  <p className="text-[10px] text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 size={10} /> Valid JSON
+                  </p>
+                )}
+              </div>
+            )}
 
             <button
               onClick={handleSaveDataset}
-              disabled={formSaving || !formName.trim() || !formUrl.trim()}
+              disabled={formSaving || !formName.trim() || (formMode === 'api' && !formUrl.trim()) || (formMode === 'manual' && (!formRawJson.trim() || !!formJsonError))}
               className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {formSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
@@ -567,7 +707,11 @@ const Datasets = () => {
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-bold text-white truncate">{ds.name}</h3>
-                    <p className="text-[10px] text-slate-500 font-mono truncate mt-0.5">{ds.url}</p>
+                    {ds.method !== 'MANUAL' ? (
+                      <p className="text-[10px] text-slate-500 font-mono truncate mt-0.5">{ds.url}</p>
+                    ) : (
+                      <p className="text-[10px] text-purple-400/60 mt-0.5">Pasted JSON data</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
                     <button
@@ -586,11 +730,12 @@ const Datasets = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                    ds.method === 'MANUAL' ? 'bg-purple-900/30 text-purple-400' :
                     ds.method === 'POST' ? 'bg-amber-900/30 text-amber-400' : 'bg-emerald-900/30 text-emerald-400'
                   }`}>
-                    {ds.method}
+                    {ds.method === 'MANUAL' ? 'JSON' : ds.method}
                   </span>
-                  {ds.token && (
+                  {ds.token && ds.method !== 'MANUAL' && (
                     <span className="flex items-center gap-0.5 text-[9px] text-slate-500">
                       <Lock size={8} /> Auth
                     </span>
@@ -643,7 +788,7 @@ const Datasets = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0 ml-4">
-            {selectedDataset && !fetchLoading && (
+            {selectedDataset && !fetchLoading && selectedDataset.method !== 'MANUAL' && (
               <button
                 onClick={() => selectedDataset && handleFetch(selectedDataset)}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-300 bg-slate-800 rounded-lg hover:bg-slate-700 border border-slate-700 transition-colors"

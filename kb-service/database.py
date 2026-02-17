@@ -76,7 +76,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS datasets (
                 id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 name            VARCHAR(255) NOT NULL,
-                url             TEXT NOT NULL,
+                url             TEXT NOT NULL DEFAULT '',
                 method          VARCHAR(10) NOT NULL DEFAULT 'GET',
                 token           TEXT NOT NULL DEFAULT '',
                 headers         JSONB NOT NULL DEFAULT '{}',
@@ -93,6 +93,9 @@ async def init_db():
         """))
         await conn.execute(text("""
             ALTER TABLE datasets ADD COLUMN IF NOT EXISTS extract_fields JSONB NOT NULL DEFAULT '[]'
+        """))
+        await conn.execute(text("""
+            ALTER TABLE datasets ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT NULL
         """))
 
         # Dataset records table
