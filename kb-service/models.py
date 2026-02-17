@@ -67,3 +67,49 @@ class StatsResponse(BaseModel):
 class MessageResponse(BaseModel):
     message: str
     count: Optional[int] = None
+
+
+# --- Settings Models ---
+
+class SettingsResponse(BaseModel):
+    settings: dict[str, str]
+
+
+class SettingsUpdateRequest(BaseModel):
+    settings: dict[str, str]
+
+
+# --- History Models ---
+
+class HistoryItemInput(BaseModel):
+    id: str
+    method: str
+    endpoint: str
+    model: str
+    timestamp: str
+    duration: str
+    tokens: int = 0
+    status: int
+    status_text: str = ""
+    preview: str = ""
+
+
+class HistoryItemResponse(BaseModel):
+    id: str
+    method: str
+    endpoint: str
+    model: str
+    timestamp: str
+    duration: str
+    tokens: int
+    status: int
+    status_text: str
+    preview: str
+    created_at: datetime
+
+
+class HistoryListResponse(BaseModel):
+    data: list[HistoryItemResponse]
+    total: int
+    page: int
+    limit: int

@@ -14,6 +14,8 @@ from models import (
     BulkDeleteRequest, BulkDeleteResponse,
     SearchRequest, SearchResponse, SearchResultItem,
     StatsResponse, MessageResponse,
+    SettingsResponse, SettingsUpdateRequest,
+    HistoryItemInput, HistoryItemResponse, HistoryListResponse,
 )
 
 
@@ -233,3 +235,144 @@ async def clear_all(session: AsyncSession = Depends(get_session)):
     result = await session.execute(text("DELETE FROM kb_documents"))
     await session.commit()
     return MessageResponse(message=f"Cleared {result.rowcount} documents", count=result.rowcount)
+
+
+# ==================== Settings Endpoints ====================
+
+
+@app.get("/api/kb/settings", response_model=SettingsResponse)
+async def get_settings(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(text("SELECT key, value FROM app_settings"))
+    rows = result.fetchall()
+    return SettingsResponse(settings={row.key: row.value for row in rows})
+
+
+@app.put("/api/kb/settings", response_model=SettingsResponse)
+async def update_settings(req: SettingsUpdateRequest, session: AsyncSession = Depends(get_session)):
+    for key, value in req.settings.items():
+        await session.execute(
+            text("""
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (:key, :value, NOW())
+                ON CONFLICT (key) DO UPDATE SET value = :value, updated_at = NOW()
+            """),
+            {"key": key, "value": value}
+        )
+    await session.commit()
+
+    result = await session.execute(text("SELECT key, value FROM app_settings"))
+    rows = result.fetchall()
+    return SettingsResponse(settings={row.key: row.value for row in rows})
+
+
+@app.post("/api/kb/settings/migrate", response_model=MessageResponse)
+async def migrate_settings(req: SettingsUpdateRequest, session: AsyncSession = Depends(get_session)):
+    migrated = 0
+    for key, value in req.settings.items():
+        result = await session.execute(
+            text("""
+                INSERT INTO app_settings (key, value)
+                VALUES (:key, :value)
+                ON CONFLICT (key) DO NOTHING
+            """),
+            {"key": key, "value": value}
+        )
+        migrated += result.rowcount
+    await session.commit()
+    return MessageResponse(message=f"Migrated {migrated} settings", count=migrated)
+
+
+# ==================== History Endpoints ====================
+
+
+@app.get("/api/kb/history", response_model=HistoryListResponse)
+async def get_history(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(text("SELECT COUNT(*) FROM request_history"))
+    total = result.scalar()
+
+    offset = (page - 1) * limit
+    result = await session.execute(
+        text("""
+            SELECT id, method, endpoint, model, timestamp, duration,
+                   tokens, status, status_text, preview, created_at
+            FROM request_history
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """),
+        {"limit": limit, "offset": offset}
+    )
+    rows = result.fetchall()
+
+    data = [
+        HistoryItemResponse(
+            id=row.id, method=row.method, endpoint=row.endpoint,
+            model=row.model, timestamp=row.timestamp, duration=row.duration,
+            tokens=row.tokens, status=row.status, status_text=row.status_text,
+            preview=row.preview, created_at=row.created_at,
+        )
+        for row in rows
+    ]
+    return HistoryListResponse(data=data, total=total, page=page, limit=limit)
+
+
+@app.post("/api/kb/history", response_model=MessageResponse)
+async def add_history_item(item: HistoryItemInput, session: AsyncSession = Depends(get_session)):
+    await session.execute(
+        text("""
+            INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview)
+            VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview)
+            ON CONFLICT (id) DO NOTHING
+        """),
+        {
+            "id": item.id, "method": item.method, "endpoint": item.endpoint,
+            "model": item.model, "timestamp": item.timestamp, "duration": item.duration,
+            "tokens": item.tokens, "status": item.status, "status_text": item.status_text,
+            "preview": item.preview,
+        }
+    )
+    await session.commit()
+    return MessageResponse(message="History item added", count=1)
+
+
+@app.post("/api/kb/history/bulk", response_model=MessageResponse)
+async def bulk_add_history(items: list[HistoryItemInput], session: AsyncSession = Depends(get_session)):
+    inserted = 0
+    for item in items:
+        result = await session.execute(
+            text("""
+                INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview)
+                VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview)
+                ON CONFLICT (id) DO NOTHING
+            """),
+            {
+                "id": item.id, "method": item.method, "endpoint": item.endpoint,
+                "model": item.model, "timestamp": item.timestamp, "duration": item.duration,
+                "tokens": item.tokens, "status": item.status, "status_text": item.status_text,
+                "preview": item.preview,
+            }
+        )
+        inserted += result.rowcount
+    await session.commit()
+    return MessageResponse(message=f"Bulk inserted {inserted} history items", count=inserted)
+
+
+@app.delete("/api/kb/history/{item_id}", response_model=MessageResponse)
+async def delete_history_item(item_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        text("DELETE FROM request_history WHERE id = :id"), {"id": item_id}
+    )
+    await session.commit()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="History item not found")
+    return MessageResponse(message="History item deleted")
+
+
+@app.delete("/api/kb/history", response_model=MessageResponse)
+async def clear_history(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(text("DELETE FROM request_history"))
+    await session.commit()
+    return MessageResponse(message=f"Cleared {result.rowcount} history items", count=result.rowcount)

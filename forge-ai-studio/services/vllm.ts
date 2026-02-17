@@ -1,23 +1,22 @@
 import { Model } from '../types';
+import {
+  getChatBaseUrl,
+  getEmbedBaseUrl,
+  getChatFallbackUrl,
+  getEmbedFallbackUrl,
+  getApiKey,
+} from './settingsApi';
 
-// --- Config helpers ---
-
-export const getChatBaseUrl = () => localStorage.getItem('forge_chat_url') || '/api/chat';
-export const getEmbedBaseUrl = () => localStorage.getItem('forge_embed_url') || '/api/embed';
-export const getChatFallbackUrl = () => localStorage.getItem('forge_chat_fallback_url') || '';
-export const getEmbedFallbackUrl = () => localStorage.getItem('forge_embed_fallback_url') || '';
-export const getApiKey = () => localStorage.getItem('forge_api_key') || 'EMPTY';
-
-// Legacy compat
-export const getBaseUrl = getChatBaseUrl;
-
-export const setConfig = (chatUrl: string, embedUrl: string, key: string, chatFallback?: string, embedFallback?: string) => {
-  localStorage.setItem('forge_chat_url', chatUrl);
-  localStorage.setItem('forge_embed_url', embedUrl);
-  localStorage.setItem('forge_api_key', key);
-  localStorage.setItem('forge_chat_fallback_url', chatFallback || '');
-  localStorage.setItem('forge_embed_fallback_url', embedFallback || '');
-};
+// --- Config: re-exported from settingsApi (DB-backed + cache) ---
+export {
+  getChatBaseUrl,
+  getEmbedBaseUrl,
+  getChatFallbackUrl,
+  getEmbedFallbackUrl,
+  getApiKey,
+  getBaseUrl,
+  setConfig,
+} from './settingsApi';
 
 // --- Fallback fetch helper ---
 

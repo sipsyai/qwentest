@@ -7,6 +7,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { generateEmbeddings, fetchEmbedModels } from '../services/vllm';
 import { addDocuments, getDocumentCount, clearAll } from '../services/kbApi';
+import { getDsApiUrl, getDsApiToken, getDsEndpoint, updateSettings } from '../services/settingsApi';
 
 const PRESET_ENDPOINTS = [
   { label: 'Knowledge Bases', value: 'knowledge-bases' },
@@ -19,9 +20,9 @@ const Datasets = () => {
   const navigate = useNavigate();
 
   // Configuration State
-  const [apiUrl, setApiUrl] = useState(localStorage.getItem('ds_api_url') || '/api/strapi');
-  const [apiToken, setApiToken] = useState(localStorage.getItem('ds_api_token') || '');
-  const [endpoint, setEndpoint] = useState(localStorage.getItem('ds_endpoint') || 'knowledge-bases');
+  const [apiUrl, setApiUrl] = useState(getDsApiUrl());
+  const [apiToken, setApiToken] = useState(getDsApiToken());
+  const [endpoint, setEndpoint] = useState(getDsEndpoint());
   const [isCustomEndpoint, setIsCustomEndpoint] = useState(false);
 
   // Data State
@@ -65,9 +66,7 @@ const Datasets = () => {
   }, [endpoint]);
 
   const saveConfig = () => {
-    localStorage.setItem('ds_api_url', apiUrl);
-    localStorage.setItem('ds_api_token', apiToken);
-    localStorage.setItem('ds_endpoint', endpoint);
+    updateSettings({ ds_api_url: apiUrl, ds_api_token: apiToken, ds_endpoint: endpoint });
   };
 
   const getFullUrl = () => {

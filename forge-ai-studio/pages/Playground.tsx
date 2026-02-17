@@ -18,7 +18,7 @@ import {
   Search,
 } from 'lucide-react';
 import { fetchVLLMModels, streamChatCompletion, ChatCompletionParams } from '../services/vllm';
-import { logChatRequest } from '../services/history';
+import { logChatRequest } from '../services/historyApi';
 import { Model } from '../types';
 import { parseThinkTags, renderMarkdownToHTML } from '../services/markdown';
 import { executeRAGPipeline, RAGResult } from '../services/rag';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Calendar, Trash2, ChevronRight, RefreshCw } from 'lucide-react';
-import { getHistory, clearHistory, deleteHistoryItem } from '../services/history';
+import { getHistory, clearHistory, deleteHistoryItem } from '../services/historyApi';
 import { HistoryItem } from '../types';
 
 const History = () => {
@@ -9,21 +9,22 @@ const History = () => {
   const [endpointFilter, setEndpointFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  const loadHistory = useCallback(() => {
-    setHistory(getHistory());
+  const loadHistory = useCallback(async () => {
+    const result = await getHistory();
+    setHistory(result.data);
   }, []);
 
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
 
-  const handleClearAll = () => {
-    clearHistory();
+  const handleClearAll = async () => {
+    await clearHistory();
     setHistory([]);
   };
 
-  const handleDelete = (id: string) => {
-    deleteHistoryItem(id);
+  const handleDelete = async (id: string) => {
+    await deleteHistoryItem(id);
     setHistory(prev => prev.filter(item => item.id !== id));
   };
 

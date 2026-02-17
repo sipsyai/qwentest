@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Server, ShieldCheck, RefreshCw, Cpu, CheckCircle2 } from 'lucide-react';
-import { getChatBaseUrl, getEmbedBaseUrl, getChatFallbackUrl, getEmbedFallbackUrl, getApiKey, setConfig } from '../services/vllm';
+import { getChatBaseUrl, getEmbedBaseUrl, getChatFallbackUrl, getEmbedFallbackUrl, getApiKey, setConfig } from '../services/settingsApi';
 
 const Settings = () => {
   const [chatUrl, setChatUrl] = useState('');
@@ -20,8 +20,8 @@ const Settings = () => {
     setApiKey(getApiKey());
   }, []);
 
-  const handleSave = () => {
-    setConfig(chatUrl, embedUrl, apiKey, chatFallbackUrl, embedFallbackUrl);
+  const handleSave = async () => {
+    await setConfig(chatUrl, embedUrl, apiKey, chatFallbackUrl, embedFallbackUrl);
     setStatus('success');
     setTimeout(() => setStatus('idle'), 2000);
   };

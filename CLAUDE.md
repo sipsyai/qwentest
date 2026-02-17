@@ -6,20 +6,22 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 ## Proje Yapisi
 - `forge-ai-studio/` - Ana React uygulamasi (Vite + TypeScript)
   - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, History, Settings
-  - `services/` - vllm.ts, kbApi.ts, rag.ts, markdown.ts, history.ts, mockData.ts
+  - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, rag.ts, markdown.ts, mockData.ts
   - `components/` - Sidebar.tsx
 - `kb-service/` - FastAPI + pgvector Knowledge Base backend (main.py, database.py, models.py)
 - `docker-compose.yml` - pgvector PostgreSQL container
 - `docs/api/` - vLLM API dokumantasyonu (chat-completions, embeddings, completions, tool-calling, tokenizer, qwen3-thinking, health, models)
 - `docs/app/` - Uygulama dokumantasyonu
+- `docs/database/SCHEMA.md` - Database sema dokumantasyonu (tablolar, indexler, iliskiler, API mapping)
 - `test-api.py` - API test scripti (health, chat, thinking, completions, embed, tokenizer, streaming, edge)
 
 ## Servisler
 - **vllm.ts**: Chat completion stream, embedding generation, model listesi, fallback URL support (fetchWithFallback)
 - **kbApi.ts**: KB API client (addDocuments, getDocuments, searchSimilar, deleteDocument, bulkDelete, clearAll, getStats, duplicate handling)
+- **settingsApi.ts**: Settings persistence (in-memory cache + PostgreSQL + localStorage fallback)
+- **historyApi.ts**: Request history persistence (PostgreSQL + localStorage fallback)
 - **rag.ts**: RAG pipeline (embed query → pgvector search → context injection)
 - **markdown.ts**: Think tag parser + markdown renderer
-- **history.ts**: Chat/embedding istek loglamasi (localStorage)
 - **mockData.ts**: Test/demo verileri
 
 ## Sayfalar
@@ -48,4 +50,8 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - Lucide React (ikonlar)
 - PostgreSQL + pgvector (Knowledge Base backend)
 - FastAPI (kb-service)
-- localStorage (settings persistence)
+- PostgreSQL (settings + history persistence, localStorage fallback)
+
+## Database
+- 3 tablo: `kb_documents`, `app_settings`, `request_history`
+- Detayli sema: `docs/database/SCHEMA.md`

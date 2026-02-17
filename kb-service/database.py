@@ -41,6 +41,56 @@ async def init_db():
                 CREATE UNIQUE INDEX idx_kb_text_unique ON kb_documents ((md5(text)))
             """))
 
+        # App settings (key-value store)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key        VARCHAR(100) PRIMARY KEY,
+                value      TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+
+        # Request history (structured)
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS request_history (
+                id          VARCHAR(50) PRIMARY KEY,
+                method      VARCHAR(10) NOT NULL,
+                endpoint    VARCHAR(255) NOT NULL,
+                model       VARCHAR(255) NOT NULL,
+                timestamp   VARCHAR(50) NOT NULL,
+                duration    VARCHAR(20) NOT NULL,
+                tokens      INTEGER NOT NULL DEFAULT 0,
+                status      INTEGER NOT NULL,
+                status_text VARCHAR(100) NOT NULL DEFAULT '',
+                preview     TEXT NOT NULL DEFAULT '',
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_history_created_at
+            ON request_history (created_at DESC)
+        """))
+
+        # Seed default settings if table is empty
+        result = await conn.execute(text("SELECT COUNT(*) FROM app_settings"))
+        count = result.scalar()
+        if count == 0:
+            defaults = [
+                ('forge_chat_url', '/api/chat'),
+                ('forge_embed_url', '/api/embed'),
+                ('forge_chat_fallback_url', ''),
+                ('forge_embed_fallback_url', ''),
+                ('forge_api_key', 'EMPTY'),
+                ('ds_api_url', '/api/strapi'),
+                ('ds_api_token', ''),
+                ('ds_endpoint', 'knowledge-bases'),
+            ]
+            for key, value in defaults:
+                await conn.execute(
+                    text("INSERT INTO app_settings (key, value) VALUES (:key, :value)"),
+                    {"key": key, "value": value}
+                )
+
 
 async def get_session() -> AsyncSession:
     async with async_session() as session:

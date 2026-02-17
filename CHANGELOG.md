@@ -3,6 +3,28 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.6.0] - 2026-02-17
+### Added
+- PostgreSQL persistence: `app_settings` + `request_history` tablolari (kb-service/database.py)
+- settingsApi.ts: In-memory cache + DB persistence, localStorage fallback
+- historyApi.ts: Async DB-backed history API, localStorage fallback
+- kb-service: 8 yeni endpoint (settings GET/PUT, history GET/POST/DELETE/clear)
+- kb-service/models.py: 5 yeni Pydantic model (SettingItem, SettingsPayload, HistoryRecord, vb.)
+- App.tsx: Init gate — settings + history localStorage → DB migration
+- docs/database/SCHEMA.md: Database sema dokumantasyonu (3 tablo, indexler, iliskiler)
+
+### Changed
+- Settings.tsx: localStorage → settingsApi async save
+- Datasets.tsx: localStorage → settingsApi import
+- History.tsx: sync history.ts → async historyApi
+- Playground.tsx: history.ts → historyApi import
+- Embeddings.tsx: history.ts → historyApi import
+- vllm.ts: localStorage getter/setter → settingsApi re-export
+
+### Removed
+- forge-ai-studio/services/history.ts (historyApi.ts ile replace edildi)
+- forge-ai-studio/services/vectorStore.ts (dead code — pgvector ile replace edilmisti)
+
 ## [0.5.0] - 2026-02-17
 ### Added
 - vLLM fallback URL destegi: fetchWithFallback helper, fallback getter/setter fonksiyonlari (vllm.ts)

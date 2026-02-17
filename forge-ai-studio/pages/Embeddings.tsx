@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Sparkles, BarChart2, FileText, Download, Copy, Loader2, ChevronDown, ChevronUp, CheckCircle2, AlertCircle, Database, Search, Trash2, X } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { generateEmbeddings, fetchEmbedModels, EmbeddingResponse } from '../services/vllm';
-import { logEmbeddingRequest } from '../services/history';
+import { logEmbeddingRequest } from '../services/historyApi';
 import { addDocuments, getDocumentCount, getDocuments, deleteDocument, bulkDelete, clearAll, searchSimilar, getStats } from '../services/kbApi';
 import type { KBDocument, KBStats, SearchResult } from '../services/kbApi';
 
