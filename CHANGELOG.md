@@ -3,6 +3,16 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.4.1] - 2026-02-16
+### Fixed
+- KB duplicate prevention: `idx_kb_text_unique` unique index (md5(text)) olusturma
+- KB insert: `ON CONFLICT ((md5(text))) DO NOTHING` ile duplicate engelleme
+- kbApi.ts: `data.count || docs.length` → `data.count ?? docs.length` (falsy zero fix)
+
+### Changed
+- Datasets: extractTextFromItem tum non-skip alanlari `key: value` formatinda birlestiriyor
+- Datasets: handleEmbedAndSave totalSent vs totalSaved takibi, duplicate skipped mesaji
+
 ## [0.4.0] - 2026-02-16
 ### Added
 - kb-service: FastAPI + pgvector Knowledge Base backend (PostgreSQL, cosine similarity search)

@@ -16,7 +16,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 
 ## Servisler
 - **vllm.ts**: Chat completion stream, embedding generation, model listesi
-- **kbApi.ts**: KB API client (addDocuments, getDocuments, searchSimilar, deleteDocument, bulkDelete, clearAll, getStats)
+- **kbApi.ts**: KB API client (addDocuments, getDocuments, searchSimilar, deleteDocument, bulkDelete, clearAll, getStats, duplicate handling)
 - **rag.ts**: RAG pipeline (embed query → pgvector search → context injection)
 - **markdown.ts**: Think tag parser + markdown renderer
 - **history.ts**: Chat/embedding istek loglamasi (localStorage)
@@ -27,7 +27,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **Models**: Model listesi ve detaylari
 - **ModelDetail**: Tek model detay sayfasi
 - **Embeddings**: Embedding olusturma + Knowledge Base kaydetme
-- **Datasets**: Strapi veri cekme, preset endpoints, embed & save
+- **Datasets**: Strapi veri cekme, preset endpoints, embed & save, duplicate prevention
 - **History**: Istek gecmisi goruntuleme
 - **Settings**: API URL, model, parametre ayarlari
 

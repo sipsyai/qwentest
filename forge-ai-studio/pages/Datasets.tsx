@@ -197,19 +197,21 @@ const Datasets = () => {
   };
 
   const extractTextFromItem = (item: any): string => {
-    const { id, _raw, created_at, updated_at, createdAt, updatedAt, publishedAt, ...rest } = item;
-    // Priority: body > summary > content > description > text > JSON fallback
-    if (rest.body && typeof rest.body === 'string') return rest.body;
-    if (rest.summary && typeof rest.summary === 'string') return rest.summary;
-    if (rest.content && typeof rest.content === 'string') return rest.content;
-    if (rest.description && typeof rest.description === 'string') return rest.description;
-    if (rest.text && typeof rest.text === 'string') return rest.text;
-    if (rest.name && typeof rest.name === 'string') {
-      const tr = rest.name_tr && typeof rest.name_tr === 'string' ? ` (${rest.name_tr})` : '';
-      return rest.name + tr;
+    const skipKeys = new Set([
+      'id', '_raw', 'created_at', 'updated_at', 'createdAt', 'updatedAt',
+      'publishedAt', 'documentId', 'locale',
+    ]);
+
+    const parts: string[] = [];
+    for (const [key, value] of Object.entries(item)) {
+      if (skipKeys.has(key)) continue;
+      if (value === null || value === undefined) continue;
+      if (typeof value === 'object') continue;
+      const str = String(value).trim();
+      if (str) parts.push(`${key}: ${str}`);
     }
-    if (rest.title && typeof rest.title === 'string') return rest.title;
-    return JSON.stringify(rest);
+
+    return parts.length > 0 ? parts.join('\n') : JSON.stringify(item);
   };
 
   const handleEmbedAndSave = async () => {
@@ -237,6 +239,7 @@ const Datasets = () => {
       // Batch in groups of 32 to avoid overloading
       const batchSize = 32;
       let totalSaved = 0;
+      let totalSent = 0;
 
       for (let i = 0; i < texts.length; i += batchSize) {
         const batch = texts.slice(i, i + batchSize);
@@ -249,12 +252,17 @@ const Datasets = () => {
           sourceLabel: `${endpoint} #${items[i + idx]?.id || idx}`,
         }));
 
-        await addDocuments(docs, embedModel);
-        totalSaved += docs.length;
+        const inserted = await addDocuments(docs, embedModel);
+        totalSaved += inserted;
+        totalSent += docs.length;
       }
 
       setKbDocCount(await getDocumentCount());
-      setEmbedSuccess(`Saved ${totalSaved} documents to Knowledge Base!`);
+      const skipped = totalSent - totalSaved;
+      const msg = skipped > 0
+        ? `Saved ${totalSaved} documents (${skipped} duplicates skipped)`
+        : `Saved ${totalSaved} documents to Knowledge Base!`;
+      setEmbedSuccess(msg);
       setTimeout(() => setEmbedSuccess(null), 4000);
     } catch (err: any) {
       setError(`Embed failed: ${err.message}`);

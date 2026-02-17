@@ -55,11 +55,18 @@ async def add_documents(req: DocumentsAddRequest, session: AsyncSession = Depend
     query = f"""
         INSERT INTO kb_documents (id, text, embedding, source, source_label)
         VALUES {', '.join(values)}
+        ON CONFLICT ((md5(text))) DO NOTHING
     """
-    await session.execute(text(query), params)
+    result = await session.execute(text(query), params)
     await session.commit()
 
-    return MessageResponse(message=f"Added {len(req.documents)} documents", count=len(req.documents))
+    inserted = result.rowcount
+    skipped = len(req.documents) - inserted
+    msg = f"Added {inserted} documents"
+    if skipped > 0:
+        msg += f" ({skipped} duplicates skipped)"
+
+    return MessageResponse(message=msg, count=inserted)
 
 
 @app.get("/api/kb/documents", response_model=DocumentsListResponse)

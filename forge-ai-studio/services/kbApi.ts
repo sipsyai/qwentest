@@ -47,7 +47,7 @@ export async function addDocuments(
   }
 
   const data = await res.json();
-  return data.count || docs.length;
+  return data.count ?? docs.length;
 }
 
 // List documents with optional filters

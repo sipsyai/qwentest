@@ -32,6 +32,15 @@ async def init_db():
                 ON kb_documents USING hnsw (embedding vector_cosine_ops)
             """))
 
+        # Unique index on text hash to prevent duplicates
+        result = await conn.execute(text("""
+            SELECT 1 FROM pg_indexes WHERE indexname = 'idx_kb_text_unique'
+        """))
+        if not result.fetchone():
+            await conn.execute(text("""
+                CREATE UNIQUE INDEX idx_kb_text_unique ON kb_documents ((md5(text)))
+            """))
+
 
 async def get_session() -> AsyncSession:
     async with async_session() as session:
