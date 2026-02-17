@@ -583,20 +583,28 @@ async def bulk_create_records(req: DatasetRecordBulkCreate, session: AsyncSessio
     if not req.records:
         return MessageResponse(message="No records provided", count=0)
 
+    inserted = 0
     for rec in req.records:
         rec_id = str(uuid.uuid4())
-        await session.execute(
+        result = await session.execute(
             text("""
                 INSERT INTO dataset_records (id, dataset_id, data, json_path, label)
-                VALUES (:id, :dataset_id, CAST(:data AS jsonb), :json_path, :label)
+                VALUES (:id, :dataset_id, CAST(:data_val AS jsonb), :json_path, :label)
+                ON CONFLICT (dataset_id, md5(data::text)) DO NOTHING
             """),
             {
                 "id": rec_id, "dataset_id": rec.dataset_id,
-                "data": json.dumps(rec.data), "json_path": rec.json_path, "label": rec.label,
+                "data_val": json.dumps(rec.data), "json_path": rec.json_path, "label": rec.label,
             }
         )
+        inserted += result.rowcount
     await session.commit()
-    return MessageResponse(message=f"Saved {len(req.records)} records", count=len(req.records))
+
+    skipped = len(req.records) - inserted
+    msg = f"Saved {inserted} records"
+    if skipped > 0:
+        msg += f" ({skipped} duplicates skipped)"
+    return MessageResponse(message=msg, count=inserted)
 
 
 @app.delete("/api/kb/dataset-records/{record_id}", response_model=MessageResponse)

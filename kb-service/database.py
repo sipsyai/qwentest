@@ -114,6 +114,25 @@ async def init_db():
             ON dataset_records (dataset_id, created_at DESC)
         """))
 
+        # Unique index on (dataset_id, data hash) to prevent duplicate records
+        result = await conn.execute(text("""
+            SELECT 1 FROM pg_indexes WHERE indexname = 'idx_dataset_records_unique_data'
+        """))
+        if not result.fetchone():
+            # Remove existing duplicates before creating unique index
+            await conn.execute(text("""
+                DELETE FROM dataset_records
+                WHERE id NOT IN (
+                    SELECT DISTINCT ON (dataset_id, md5(data::text)) id
+                    FROM dataset_records
+                    ORDER BY dataset_id, md5(data::text), created_at ASC
+                )
+            """))
+            await conn.execute(text("""
+                CREATE UNIQUE INDEX idx_dataset_records_unique_data
+                ON dataset_records (dataset_id, md5(data::text))
+            """))
+
         # Seed default settings if table is empty
         result = await conn.execute(text("SELECT COUNT(*) FROM app_settings"))
         count = result.scalar()

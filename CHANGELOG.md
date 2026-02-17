@@ -3,6 +3,13 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.10.1] - 2026-02-17
+
+### Fixed
+- Dataset records duplicate prevention: `idx_dataset_records_unique_data` unique index `(dataset_id, md5(data::text))`
+- Dataset records insert: `ON CONFLICT DO NOTHING` ile ayni veri tekrar kaydedilmez
+- "Extract & Save All" tekrar basildiginda 0 yeni kayit (duplicate'lar sessizce atlanir)
+
 ## [0.10.0] - 2026-02-17
 
 ### Added

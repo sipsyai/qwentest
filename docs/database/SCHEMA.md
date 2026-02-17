@@ -106,7 +106,8 @@ Dataset'lerden secilip kaydedilen JSON kayitlari.
 | `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Olusturulma zamani |
 
 **Indexler:**
-- `idx_dataset_records_dataset_id` - Index on `dataset_id` - FK lookup icin
+- `idx_dataset_records_dataset_id` - Index on `(dataset_id, created_at DESC)` - FK lookup + sirali listeleme
+- `idx_dataset_records_unique_data` - UNIQUE index on `(dataset_id, md5(data::text))` - Ayni dataset'te duplicate veri onleme
 
 ---
 
