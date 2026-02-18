@@ -3,6 +3,28 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.16.0] - 2026-02-18
+
+### Added
+- Workflows page: **Agent Runner** tab — 3-panel workspace (agent list, execution, tools/config) merged from AgenticDashboard
+- Agent Runner: supports both simple (SSE stream) and agentic (ReAct step tracker) agents
+- Agent Runner right panel: Tool Registry (ACTIVE highlights) + Agent Config (system prompt, parameters)
+- `WorkflowRunRequest` Pydantic model: accepts `variables: dict[str,str]` for `{{input:key}}` runtime vars
+- agent_executor.py: Guard for `thinking + jsonMode` conflict (thinking auto-disabled when JSON mode on)
+- agent_executor.py: `_resolve_rag()` uses variable values as embedding query (prevents instruction text from biasing RAG)
+- ITSM test suite: `itsm-scenarios.json` (50 scenarios) + `itsm-test-runner.py` runner script
+
+### Changed
+- Workflows page: full rewrite with top tab bar [Pipeline Builder | Agent Runner]
+- `runWorkflow()` API client: now accepts `variables` param, sends as POST body to backend
+- `run_workflow` backend endpoint: resolves `{{input:key}}` mappings from request body variables
+- Sidebar: removed "Agentic" nav entry — functionality consolidated into Workflows → Agent Runner tab
+- App.tsx: removed `/agentic` route and AgenticDashboard import
+
+### Removed
+- `/agentic` route (AgenticDashboard merged into Workflows)
+- "Agentic" sidebar nav item
+
 ## [0.15.1] - 2026-02-17
 
 ### Fixed

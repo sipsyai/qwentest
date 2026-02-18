@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text, func
@@ -26,6 +26,7 @@ from models import (
     AgentCreate, AgentUpdate, AgentResponse, AgentListResponse,
     AgentRunRequest, AgentToolInfo, AgentToolsResponse,
     WorkflowCreate, WorkflowUpdate, WorkflowResponse, WorkflowListResponse,
+    WorkflowRunRequest,
 )
 from agent_executor import AgentExecutor
 from tools import get_available_tool_names, TOOL_REGISTRY
@@ -950,7 +951,11 @@ async def delete_workflow(wf_id: str, session: AsyncSession = Depends(get_sessio
 
 
 @app.post("/api/kb/workflows/{wf_id}/run")
-async def run_workflow(wf_id: str, session: AsyncSession = Depends(get_session)):
+async def run_workflow(
+    wf_id: str,
+    req: WorkflowRunRequest = Body(default_factory=WorkflowRunRequest),
+    session: AsyncSession = Depends(get_session),
+):
     """Run a workflow: execute steps sequentially, piping outputs as variables."""
     # Load workflow
     result = await session.execute(
@@ -1017,6 +1022,10 @@ async def run_workflow(wf_id: str, session: AsyncSession = Depends(get_session))
                     # {{step:step_id}} -> output of a specific step
                     ref_id = mapping[7:-2]
                     resolved_vars[var_name] = step_outputs.get(ref_id, "")
+                elif mapping.startswith("{{input:") and mapping.endswith("}}"):
+                    # {{input:key}} -> runtime user-supplied variable
+                    var_key = mapping[8:-2]
+                    resolved_vars[var_name] = req.variables.get(var_key, "")
                 else:
                     resolved_vars[var_name] = mapping  # literal value
 

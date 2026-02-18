@@ -93,6 +93,7 @@ export interface WorkflowRunCallbacks {
 
 export async function runWorkflow(
   workflowId: string,
+  variables: Record<string, string>,
   callbacks: WorkflowRunCallbacks,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -100,6 +101,7 @@ export async function runWorkflow(
     const res = await fetch(`${KB_BASE}/workflows/${workflowId}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variables }),
       signal,
     });
 

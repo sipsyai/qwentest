@@ -272,3 +272,7 @@ class WorkflowResponse(BaseModel):
 class WorkflowListResponse(BaseModel):
     data: list[WorkflowResponse]
     total: int
+
+
+class WorkflowRunRequest(BaseModel):
+    variables: dict[str, str] = {}

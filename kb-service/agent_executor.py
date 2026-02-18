@@ -102,6 +102,10 @@ class AgentExecutor:
         self.rag_threshold = config.get("ragThreshold", 0.3)
         self.rag_sources = config.get("ragSources", [])
 
+        # Guard: thinking + jsonMode conflict — thinking tags break JSON output
+        if self.json_mode and self.thinking:
+            self.thinking = False
+
         # Runtime state
         self.messages = []
         self.full_text = ""
@@ -234,17 +238,31 @@ class AgentExecutor:
                     raise Exception(f"vLLM returned {resp.status_code}: {resp.text}")
                 return resp.json()
 
-    async def _resolve_rag(self, resolved_prompt: str, resolved_system: str) -> tuple[str, str, int]:
-        """Apply RAG context injection if enabled. Returns (prompt, system, context_count)."""
+    async def _resolve_rag(self, resolved_prompt: str, resolved_system: str, variables: dict | None = None) -> tuple[str, str, int]:
+        """Apply RAG context injection if enabled. Returns (prompt, system, context_count).
+
+        Uses variable values as the embedding query instead of the full prompt.
+        This prevents instruction text from biasing the semantic search results.
+        """
         if not self.rag_enabled or not self.embed_url or not self.embed_model:
             return resolved_prompt, resolved_system, 0
 
         try:
-            # Embed the prompt
+            # Build semantic query from variable values only (not the full prompt)
+            # This prevents instruction text from biasing RAG results
+            rag_query = ""
+            if variables:
+                var_values = [str(v) for v in variables.values() if v]
+                rag_query = " ".join(var_values)
+            # Fallback to full prompt if no variables
+            if not rag_query.strip():
+                rag_query = resolved_prompt
+
+            # Embed the semantic query
             async with httpx.AsyncClient(timeout=30.0) as client:
                 embed_resp = await client.post(
                     f"{self.embed_url}/embeddings",
-                    json={"model": self.embed_model, "input": resolved_prompt}
+                    json={"model": self.embed_model, "input": rag_query}
                 )
                 embed_data = embed_resp.json()
                 query_embedding = embed_data["data"][0]["embedding"]
@@ -315,8 +333,8 @@ class AgentExecutor:
         resolved_prompt = self._resolve_template(self.prompt_template, merged)
         resolved_system = self._resolve_template(self.system_prompt, merged)
 
-        # RAG
-        resolved_prompt, resolved_system, rag_count = await self._resolve_rag(resolved_prompt, resolved_system)
+        # RAG — pass variables for semantic query extraction
+        resolved_prompt, resolved_system, rag_count = await self._resolve_rag(resolved_prompt, resolved_system, merged)
 
         # Build messages
         self.messages = []
@@ -383,8 +401,8 @@ class AgentExecutor:
         resolved_prompt = self._resolve_template(self.prompt_template, merged)
         resolved_system = self._resolve_template(self.system_prompt, merged)
 
-        # RAG (pre-loop)
-        resolved_prompt, resolved_system, rag_count = await self._resolve_rag(resolved_prompt, resolved_system)
+        # RAG (pre-loop) — pass variables for semantic query extraction
+        resolved_prompt, resolved_system, rag_count = await self._resolve_rag(resolved_prompt, resolved_system, merged)
 
         # Prepare tool schemas
         tool_schemas = get_tool_schemas(self.enabled_tools) if self.enabled_tools else []
