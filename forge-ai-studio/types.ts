@@ -24,6 +24,9 @@ export interface HistoryItem {
   status: number;
   statusText: string;
   preview: string;
+  workflowId?: string | null;
+  workflowName?: string | null;
+  workflowStep?: number | null;
 }
 
 export interface HistoryItemDetail extends HistoryItem {
@@ -31,6 +34,7 @@ export interface HistoryItemDetail extends HistoryItem {
     messages: { role: string; content: string }[];
     params: Record<string, any>;
     rag?: { enabled: boolean; topK: number; threshold: number; sources: string[]; contextCount: number };
+    workflow?: { id: string; name: string; step: number };
   } | null;
   responsePayload: {
     text: string;

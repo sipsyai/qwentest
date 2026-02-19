@@ -8,9 +8,11 @@ const RESPONSE_TEXT_CAP = 50_000;
 
 // --- Public API ---
 
-export async function getHistory(page = 1, limit = 100): Promise<{ data: HistoryItem[]; total: number }> {
+export async function getHistory(page = 1, limit = 100, source?: 'standalone' | 'workflow'): Promise<{ data: HistoryItem[]; total: number }> {
   try {
-    const res = await fetch(`${KB_BASE}/history?page=${page}&limit=${limit}`);
+    let url = `${KB_BASE}/history?page=${page}&limit=${limit}`;
+    if (source) url += `&source=${source}`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error('fetch failed');
     const json = await res.json();
     return {
@@ -25,6 +27,9 @@ export async function getHistory(page = 1, limit = 100): Promise<{ data: History
         status: item.status,
         statusText: item.status_text,
         preview: item.preview,
+        workflowId: item.workflow_id ?? null,
+        workflowName: item.workflow_name ?? null,
+        workflowStep: item.workflow_step ?? null,
       })),
       total: json.total,
     };
@@ -49,6 +54,9 @@ export async function getHistoryItem(id: string): Promise<HistoryItemDetail | nu
       status: item.status,
       statusText: item.status_text,
       preview: item.preview,
+      workflowId: item.workflow_id ?? null,
+      workflowName: item.workflow_name ?? null,
+      workflowStep: item.workflow_step ?? null,
       requestPayload: item.request_payload ?? null,
       responsePayload: item.response_payload ?? null,
     };

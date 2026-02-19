@@ -79,6 +79,20 @@ async def init_db():
             ALTER TABLE request_history ADD COLUMN IF NOT EXISTS response_payload JSONB DEFAULT NULL
         """))
 
+        # Workflow tracking columns for request_history
+        await conn.execute(text("""
+            ALTER TABLE request_history ADD COLUMN IF NOT EXISTS workflow_id VARCHAR(50) DEFAULT NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE request_history ADD COLUMN IF NOT EXISTS workflow_name VARCHAR(255) DEFAULT NULL
+        """))
+        await conn.execute(text("""
+            ALTER TABLE request_history ADD COLUMN IF NOT EXISTS workflow_step INTEGER DEFAULT NULL
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_history_workflow_id ON request_history (workflow_id)
+        """))
+
         # Datasets table
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS datasets (

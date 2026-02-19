@@ -26,7 +26,7 @@ CHECKS = {
         re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', t)
     ),
     "no_chinese": lambda t: not bool(
-        re.search(r'[\u4e00-\u9fff\u3400-\u4dbf\u20000-\u2a6df]', t)
+        re.search(r'[\u4e00-\u9fff\u3400-\u4dbf\U00020000-\U0002a6df]', t)
     ),
     "has_turkish": lambda t: bool(
         re.search(r'[ğüşöçıİĞÜŞÖÇ]', t)

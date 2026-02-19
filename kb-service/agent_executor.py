@@ -65,6 +65,9 @@ class AgentExecutor:
         embed_url: str = "",
         embed_model: str = "",
         depth: int = 0,
+        workflow_id: str = "",
+        workflow_name: str = "",
+        workflow_step: int = -1,
     ):
         self.config = config
         self.agent_id = agent_id
@@ -74,6 +77,9 @@ class AgentExecutor:
         self.embed_url = embed_url
         self.embed_model = embed_model
         self.depth = depth
+        self.workflow_id = workflow_id
+        self.workflow_name = workflow_name
+        self.workflow_step = workflow_step
 
         # Extract config
         self.model = config.get("selectedModel", "")
@@ -702,6 +708,13 @@ class AgentExecutor:
                 "topK": self.rag_top_k,
                 "threshold": self.rag_threshold,
                 "sources": self.rag_sources,
+            }
+
+        if self.workflow_id:
+            req_payload["workflow"] = {
+                "id": self.workflow_id,
+                "name": self.workflow_name,
+                "step": self.workflow_step,
             }
 
         res_text = self.full_text[:50000]

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Calendar, Trash2, ChevronRight, ChevronDown, RefreshCw, Loader2, MessageSquare, Settings2, Database, FileText, AlertCircle } from 'lucide-react';
+import { Search, Calendar, Trash2, ChevronRight, ChevronDown, RefreshCw, Loader2, MessageSquare, Settings2, Database, FileText, AlertCircle, GitBranch } from 'lucide-react';
 import { getHistory, getHistoryItem, clearHistory, deleteHistoryItem } from '../services/historyApi';
 import { HistoryItem, HistoryItemDetail } from '../types';
 
@@ -8,6 +8,7 @@ const History = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [endpointFilter, setEndpointFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'standalone' | 'workflow'>('all');
 
   // Detail expand state
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -15,9 +16,9 @@ const History = () => {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const loadHistory = useCallback(async () => {
-    const result = await getHistory();
+    const result = await getHistory(1, 100, sourceFilter === 'all' ? undefined : sourceFilter);
     setHistory(result.data);
-  }, []);
+  }, [sourceFilter]);
 
   useEffect(() => {
     loadHistory();
@@ -134,6 +135,16 @@ const History = () => {
             <option value="success">Success (200)</option>
             <option value="error">Errors</option>
           </select>
+
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value as 'all' | 'standalone' | 'workflow')}
+            className="bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-300 outline-none focus:border-blue-500"
+          >
+            <option value="all">Source: All</option>
+            <option value="standalone">Standalone</option>
+            <option value="workflow">Workflow</option>
+          </select>
         </div>
 
         <button
@@ -162,6 +173,12 @@ const History = () => {
             <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Total Tokens</span>
             <span className="text-lg font-bold text-blue-400">
               {history.reduce((sum, h) => sum + h.tokens, 0).toLocaleString()}
+            </span>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-3 flex-1">
+            <span className="text-[10px] text-slate-500 font-bold uppercase block mb-1">Workflow Steps</span>
+            <span className="text-lg font-bold text-orange-400">
+              {history.filter(h => h.workflowId).length}
             </span>
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-3 flex-1">
@@ -200,6 +217,13 @@ const History = () => {
                       <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
                       {item.model}
                     </span>
+
+                    {item.workflowId && (
+                      <span className="flex items-center gap-1.5 text-xs text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded border border-orange-500/30">
+                        <GitBranch size={11} />
+                        {item.workflowName} &middot; Step {(item.workflowStep ?? 0) + 1}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-4 text-xs text-slate-500 font-mono">
@@ -240,6 +264,32 @@ const History = () => {
                     </div>
                   ) : expandedDetail ? (
                     <div className="p-5 space-y-5">
+                      {/* Workflow Context */}
+                      {expandedDetail.requestPayload?.workflow && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <GitBranch size={14} className="text-orange-400" />
+                            <span className="text-xs font-bold text-orange-400 uppercase tracking-wider">Workflow Context</span>
+                          </div>
+                          <div className="bg-orange-900/10 border border-orange-900/30 rounded-lg p-3">
+                            <div className="grid grid-cols-3 gap-4 text-xs">
+                              <div>
+                                <span className="text-[10px] text-slate-500 block">Workflow</span>
+                                <span className="text-orange-400 font-mono">{expandedDetail.requestPayload.workflow.name}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block">Step</span>
+                                <span className="text-orange-400 font-mono">{expandedDetail.requestPayload.workflow.step + 1}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-500 block">Workflow ID</span>
+                                <span className="text-orange-400 font-mono text-[10px]">{expandedDetail.requestPayload.workflow.id}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Request Payload */}
                       {expandedDetail.requestPayload ? (
                         <div className="space-y-4">

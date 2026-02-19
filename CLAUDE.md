@@ -36,7 +36,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **DatasetRecords**: Kaydedilen dataset kayitlari (/dataset-records), filter, search, tablo gorunumu (otomatik kolon turetme), embed pipeline (tag-based field selection, batch embed with progress, embed status tracking)
 - **Agents**: Saved agent cards with Run/Edit/Delete, direct execution via streaming Run modal (variable inputs, markdown output, think tags, copy/stop), promptTemplate preview + variable badges
 - **Workflows**: Pipeline Builder tab (chain agents, variable mappings, step execution) + Agent Runner tab (3-panel: agent list, workspace, tool registry/config — supports simple + ReAct agents)
-- **History**: Istek gecmisi goruntuleme, expand/collapse detail panel (request payload: messages + params + RAG config, response payload: full text)
+- **History**: Istek gecmisi goruntuleme, expand/collapse detail panel (request payload: messages + params + RAG config, response payload: full text), workflow history tracking (source filter: standalone/workflow, workflow badge, workflow context panel in detail view)
 - **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu
 
 ## Dev Ortami

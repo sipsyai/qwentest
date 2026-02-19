@@ -285,17 +285,26 @@ async def update_settings(req: SettingsUpdateRequest, session: AsyncSession = De
 async def get_history(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
+    source: Optional[str] = Query(None),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(text("SELECT COUNT(*) FROM request_history"))
+    where_clause = ""
+    if source == "standalone":
+        where_clause = "WHERE workflow_id IS NULL"
+    elif source == "workflow":
+        where_clause = "WHERE workflow_id IS NOT NULL"
+
+    result = await session.execute(text(f"SELECT COUNT(*) FROM request_history {where_clause}"))
     total = result.scalar()
 
     offset = (page - 1) * limit
     result = await session.execute(
-        text("""
+        text(f"""
             SELECT id, method, endpoint, model, timestamp, duration,
-                   tokens, status, status_text, preview, created_at
+                   tokens, status, status_text, preview, created_at,
+                   workflow_id, workflow_name, workflow_step
             FROM request_history
+            {where_clause}
             ORDER BY created_at DESC
             LIMIT :limit OFFSET :offset
         """),
@@ -309,6 +318,8 @@ async def get_history(
             model=row.model, timestamp=row.timestamp, duration=row.duration,
             tokens=row.tokens, status=row.status, status_text=row.status_text,
             preview=row.preview, created_at=row.created_at,
+            workflow_id=row.workflow_id, workflow_name=row.workflow_name,
+            workflow_step=row.workflow_step,
         )
         for row in rows
     ]
@@ -319,8 +330,8 @@ async def get_history(
 async def add_history_item(item: HistoryItemInput, session: AsyncSession = Depends(get_session)):
     await session.execute(
         text("""
-            INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload)
-            VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb))
+            INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload, workflow_id, workflow_name, workflow_step)
+            VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb), :workflow_id, :workflow_name, :workflow_step)
             ON CONFLICT (id) DO NOTHING
         """),
         {
@@ -330,6 +341,8 @@ async def add_history_item(item: HistoryItemInput, session: AsyncSession = Depen
             "preview": item.preview,
             "request_payload": json.dumps(item.request_payload) if item.request_payload else None,
             "response_payload": json.dumps(item.response_payload) if item.response_payload else None,
+            "workflow_id": item.workflow_id, "workflow_name": item.workflow_name,
+            "workflow_step": item.workflow_step,
         }
     )
     await session.commit()
@@ -342,8 +355,8 @@ async def bulk_add_history(items: list[HistoryItemInput], session: AsyncSession 
     for item in items:
         result = await session.execute(
             text("""
-                INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload)
-                VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb))
+                INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload, workflow_id, workflow_name, workflow_step)
+                VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb), :workflow_id, :workflow_name, :workflow_step)
                 ON CONFLICT (id) DO NOTHING
             """),
             {
@@ -353,6 +366,8 @@ async def bulk_add_history(items: list[HistoryItemInput], session: AsyncSession 
                 "preview": item.preview,
                 "request_payload": json.dumps(item.request_payload) if item.request_payload else None,
                 "response_payload": json.dumps(item.response_payload) if item.response_payload else None,
+                "workflow_id": item.workflow_id, "workflow_name": item.workflow_name,
+                "workflow_step": item.workflow_step,
             }
         )
         inserted += result.rowcount
@@ -366,7 +381,8 @@ async def get_history_item(item_id: str, session: AsyncSession = Depends(get_ses
         text("""
             SELECT id, method, endpoint, model, timestamp, duration,
                    tokens, status, status_text, preview, created_at,
-                   request_payload, response_payload
+                   request_payload, response_payload,
+                   workflow_id, workflow_name, workflow_step
             FROM request_history
             WHERE id = :id
         """),
@@ -395,6 +411,8 @@ async def get_history_item(item_id: str, session: AsyncSession = Depends(get_ses
         model=row.model, timestamp=row.timestamp, duration=row.duration,
         tokens=row.tokens, status=row.status, status_text=row.status_text,
         preview=row.preview, created_at=row.created_at,
+        workflow_id=row.workflow_id, workflow_name=row.workflow_name,
+        workflow_step=row.workflow_step,
         request_payload=req_payload,
         response_payload=res_payload,
     )
@@ -989,11 +1007,14 @@ async def run_workflow(
     async def workflow_generator():
         prev_output = ""
         step_outputs = {}  # step_id -> output
+        wf_id = str(row.id)
+        wf_name = row.name
 
         for idx, step in enumerate(steps):
             step_id = step.get("id", f"step_{idx}")
             agent_id = step.get("agentId", "")
             variable_mappings = step.get("variableMappings", {})
+            step_start_time = time.time()
 
             if not agent_id:
                 yield f"event: step_error\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'error': 'No agent configured'})}\n\n"
@@ -1032,7 +1053,7 @@ async def run_workflow(
             # Emit step start
             yield f"event: step_start\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'agent_name': agent_row.name, 'agent_id': agent_id})}\n\n"
 
-            # Create executor
+            # Create executor with workflow context
             executor = AgentExecutor(
                 config=config,
                 agent_id=str(agent_row.id),
@@ -1041,10 +1062,14 @@ async def run_workflow(
                 chat_url=chat_url,
                 embed_url=embed_url,
                 embed_model=embed_model,
+                workflow_id=wf_id,
+                workflow_name=wf_name,
+                workflow_step=idx,
             )
 
             # Run and collect output
             step_text = ""
+            step_status = 200
             try:
                 async for event in executor.execute(resolved_vars, stream=True):
                     # Forward sub-events with step context
@@ -1076,6 +1101,42 @@ async def run_workflow(
                         except Exception:
                             pass
             except Exception as e:
+                step_status = 500
+                # Log error step to history
+                try:
+                    elapsed_ms = int((time.time() - step_start_time) * 1000)
+                    async with async_session() as hist_session:
+                        hist_id = f"req_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
+                        duration = f"{elapsed_ms}ms" if elapsed_ms < 1000 else f"{elapsed_ms/1000:.1f}s"
+                        model = config.get("selectedModel", "")
+                        await hist_session.execute(
+                            text("""
+                                INSERT INTO request_history (
+                                    id, method, endpoint, model, timestamp, duration,
+                                    tokens, status, status_text, preview,
+                                    request_payload, response_payload,
+                                    workflow_id, workflow_name, workflow_step
+                                ) VALUES (
+                                    :id, :method, :endpoint, :model, :timestamp, :duration,
+                                    :tokens, :status, :status_text, :preview,
+                                    CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb),
+                                    :workflow_id, :workflow_name, :workflow_step
+                                ) ON CONFLICT (id) DO NOTHING
+                            """),
+                            {
+                                "id": hist_id, "method": "POST", "endpoint": "/v1/chat/completions",
+                                "model": model, "timestamp": time.strftime("%m/%d/%Y, %I:%M:%S %p"),
+                                "duration": duration, "tokens": 0,
+                                "status": 500, "status_text": "Error",
+                                "preview": str(e)[:150],
+                                "request_payload": json.dumps({"variables": resolved_vars, "agent": {"id": str(agent_row.id), "name": agent_row.name}}),
+                                "response_payload": json.dumps({"text": str(e), "truncated": False}),
+                                "workflow_id": wf_id, "workflow_name": wf_name, "workflow_step": idx,
+                            }
+                        )
+                        await hist_session.commit()
+                except Exception:
+                    pass
                 yield f"event: step_error\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'error': str(e)})}\n\n"
                 continue
 
@@ -1083,6 +1144,48 @@ async def run_workflow(
             final_text = executor.full_text or step_text
             prev_output = final_text
             step_outputs[step_id] = final_text
+
+            # Log successful step to history
+            try:
+                elapsed_ms = int((time.time() - step_start_time) * 1000)
+                async with async_session() as hist_session:
+                    hist_id = f"req_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}"
+                    preview = final_text[:150] if final_text else "(empty)"
+                    duration = f"{elapsed_ms}ms" if elapsed_ms < 1000 else f"{elapsed_ms/1000:.1f}s"
+                    model = config.get("selectedModel", "")
+                    prompt_template = config.get("promptTemplate", "")
+                    token_est = (len(prompt_template) + len(final_text)) // 4
+
+                    req_payload, res_payload = executor.get_history_payload(resolved_vars)
+
+                    await hist_session.execute(
+                        text("""
+                            INSERT INTO request_history (
+                                id, method, endpoint, model, timestamp, duration,
+                                tokens, status, status_text, preview,
+                                request_payload, response_payload,
+                                workflow_id, workflow_name, workflow_step
+                            ) VALUES (
+                                :id, :method, :endpoint, :model, :timestamp, :duration,
+                                :tokens, :status, :status_text, :preview,
+                                CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb),
+                                :workflow_id, :workflow_name, :workflow_step
+                            ) ON CONFLICT (id) DO NOTHING
+                        """),
+                        {
+                            "id": hist_id, "method": "POST", "endpoint": "/v1/chat/completions",
+                            "model": model, "timestamp": time.strftime("%m/%d/%Y, %I:%M:%S %p"),
+                            "duration": duration, "tokens": token_est,
+                            "status": step_status, "status_text": "OK",
+                            "preview": preview,
+                            "request_payload": json.dumps(req_payload),
+                            "response_payload": json.dumps(res_payload),
+                            "workflow_id": wf_id, "workflow_name": wf_name, "workflow_step": idx,
+                        }
+                    )
+                    await hist_session.commit()
+            except Exception:
+                pass
 
             yield f"event: step_done\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'output_preview': final_text, 'output_length': len(final_text)})}\n\n"
 

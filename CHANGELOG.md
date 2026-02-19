@@ -3,6 +3,29 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.18.0] - 2026-02-19
+
+### Added
+- Workflow history tracking: workflow steps automatically logged to `request_history` with `workflow_id`, `workflow_name`, `workflow_step` columns
+- History page: "Source" filter dropdown (All / Standalone / Workflow) to separate workflow steps from standalone requests
+- History page: "Workflow Steps" stat card showing total workflow entries
+- History list: orange workflow badge with GitBranch icon, workflow name + step number
+- History detail: "Workflow Context" panel showing workflow name, step, and ID
+- `idx_history_workflow_id` index on `request_history` for efficient workflow filtering
+- `GET /api/kb/history?source=standalone|workflow` query param for server-side source filtering
+
+### Changed
+- `HistoryItemInput` / `HistoryItemResponse` Pydantic models: `workflow_id`, `workflow_name`, `workflow_step` optional fields
+- `HistoryItem` / `HistoryItemDetail` TypeScript types: `workflowId`, `workflowName`, `workflowStep` fields
+- `getHistory()` / `getHistoryItem()` API client: maps workflow fields from snake_case to camelCase
+- `AgentExecutor.__init__()`: accepts `workflow_id`, `workflow_name`, `workflow_step` params, includes in history payload
+- `workflow_generator()`: logs each step (success + error) to `request_history` with workflow context
+- History GET/detail SQL queries: include `workflow_id`, `workflow_name`, `workflow_step` columns
+- History INSERT queries: include workflow columns in insert + bulk insert
+
+### Fixed
+- `itsm-test-runner.py`: Unicode escape `\u20000` → `\U00020000` for CJK Unified Ideographs Extension B range
+
 ## [0.17.0] - 2026-02-19
 
 ### Added

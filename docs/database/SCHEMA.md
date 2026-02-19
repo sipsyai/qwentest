@@ -67,10 +67,14 @@ Playground ve Embeddings sayfalarindan yapilan tum API isteklerini loglar.
 | `preview` | TEXT | NOT NULL, DEFAULT '' | Yanit onizlemesi (ilk 150 karakter) |
 | `request_payload` | JSONB | DEFAULT NULL | Tam request verisi (messages, params, RAG config) |
 | `response_payload` | JSONB | DEFAULT NULL | Tam response verisi (text, truncated flag) |
+| `workflow_id` | VARCHAR(50) | DEFAULT NULL | Workflow ID (NULL = standalone request) |
+| `workflow_name` | VARCHAR(255) | DEFAULT NULL | Workflow adi |
+| `workflow_step` | INTEGER | DEFAULT NULL | Workflow step index (0-based) |
 | `created_at` | TIMESTAMPTZ | DEFAULT NOW() | DB'ye yazilma zamani |
 
 **Indexler:**
 - `idx_history_created_at` - DESC index on `created_at` - Sirali listeleme icin
+- `idx_history_workflow_id` - Index on `workflow_id` - Workflow bazli filtreleme
 
 ---
 
@@ -131,11 +135,11 @@ Dataset'lerden secilip kaydedilen JSON kayitlari.
 |    datasets      |     | dataset_records    |   | preview          |
 +------------------+     +--------------------+   | request_payload  |
 | id (SERIAL) PK   |←1:N| id (SERIAL) PK    |   | response_payload |
-| name             |     | dataset_id (FK)    |   | created_at       |
-| url              |     | data (JSONB)       |   +------------------+
-| method           |     | json_path          |
-| token            |     | label              |
-| headers (JSONB)  |     | created_at         |
+| name             |     | dataset_id (FK)    |   | workflow_id      |
+| url              |     | data (JSONB)       |   | workflow_name    |
+| method           |     | json_path          |   | workflow_step    |
+| token            |     | label              |   | created_at       |
+| headers (JSONB)  |     | created_at         |   +------------------+
 | created_at       |     +--------------------+
 | updated_at       |       ON DELETE CASCADE
 +------------------+

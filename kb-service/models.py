@@ -94,6 +94,9 @@ class HistoryItemInput(BaseModel):
     preview: str = ""
     request_payload: Optional[dict] = None
     response_payload: Optional[dict] = None
+    workflow_id: Optional[str] = None
+    workflow_name: Optional[str] = None
+    workflow_step: Optional[int] = None
 
 
 class HistoryItemResponse(BaseModel):
@@ -108,6 +111,9 @@ class HistoryItemResponse(BaseModel):
     status_text: str
     preview: str
     created_at: datetime
+    workflow_id: Optional[str] = None
+    workflow_name: Optional[str] = None
+    workflow_step: Optional[int] = None
 
 
 class HistoryItemDetailResponse(HistoryItemResponse):
