@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, Depends, Query, HTTPException, Body
+from fastapi import FastAPI, Depends, Query, HTTPException, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text, func
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import init_db, get_session, async_session
 from models import (
-    DocumentsAddRequest, DocumentResponse, DocumentsListResponse,
+    DocumentsAddRequest, DocumentUpdate, DocumentResponse, DocumentsListResponse,
     BulkDeleteRequest, BulkDeleteResponse,
     SearchRequest, SearchResponse, SearchResultItem,
     StatsResponse, MessageResponse,
@@ -138,6 +138,65 @@ async def list_documents(
     ]
 
     return DocumentsListResponse(data=data, total=total, page=page, limit=limit)
+
+
+@app.put("/api/kb/documents/{doc_id}", response_model=DocumentResponse)
+async def update_document(doc_id: str, req: DocumentUpdate, session: AsyncSession = Depends(get_session)):
+    # Check document exists
+    result = await session.execute(
+        text("SELECT id, text, source, source_label, created_at FROM kb_documents WHERE id = :id"),
+        {"id": doc_id}
+    )
+    existing = result.fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # If text changes, embedding is required
+    if req.text is not None and req.embedding is None:
+        raise HTTPException(status_code=400, detail="Embedding required when text changes")
+
+    updates = {}
+    params = {"id": doc_id}
+    if req.text is not None:
+        updates["text"] = "text = :text"
+        params["text"] = req.text
+    if req.embedding is not None:
+        embedding_str = "[" + ",".join(str(v) for v in req.embedding) + "]"
+        updates["embedding"] = "embedding = CAST(:embedding AS vector)"
+        params["embedding"] = embedding_str
+    if req.source is not None:
+        updates["source"] = "source = :source"
+        params["source"] = req.source
+    if req.source_label is not None:
+        updates["source_label"] = "source_label = :source_label"
+        params["source_label"] = req.source_label
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    set_clause = ", ".join(updates.values())
+    try:
+        result = await session.execute(
+            text(f"UPDATE kb_documents SET {set_clause} WHERE id = :id"),
+            params
+        )
+        await session.commit()
+    except Exception as e:
+        await session.rollback()
+        if "idx_kb_text_unique" in str(e) or "unique" in str(e).lower():
+            raise HTTPException(status_code=409, detail="Duplicate text: another document with the same text already exists")
+        raise
+
+    # Return updated document
+    result = await session.execute(
+        text("SELECT id, text, source, source_label, created_at FROM kb_documents WHERE id = :id"),
+        {"id": doc_id}
+    )
+    row = result.fetchone()
+    return DocumentResponse(
+        id=str(row.id), text=row.text, source=row.source,
+        source_label=row.source_label, created_at=row.created_at,
+    )
 
 
 @app.delete("/api/kb/documents/{doc_id}", response_model=MessageResponse)
@@ -302,7 +361,7 @@ async def get_history(
         text(f"""
             SELECT id, method, endpoint, model, timestamp, duration,
                    tokens, status, status_text, preview, created_at,
-                   workflow_id, workflow_name, workflow_step
+                   workflow_id, workflow_name, workflow_step, agent_name
             FROM request_history
             {where_clause}
             ORDER BY created_at DESC
@@ -319,7 +378,7 @@ async def get_history(
             tokens=row.tokens, status=row.status, status_text=row.status_text,
             preview=row.preview, created_at=row.created_at,
             workflow_id=row.workflow_id, workflow_name=row.workflow_name,
-            workflow_step=row.workflow_step,
+            workflow_step=row.workflow_step, agent_name=row.agent_name,
         )
         for row in rows
     ]
@@ -330,8 +389,8 @@ async def get_history(
 async def add_history_item(item: HistoryItemInput, session: AsyncSession = Depends(get_session)):
     await session.execute(
         text("""
-            INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload, workflow_id, workflow_name, workflow_step)
-            VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb), :workflow_id, :workflow_name, :workflow_step)
+            INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload, workflow_id, workflow_name, workflow_step, agent_name)
+            VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb), :workflow_id, :workflow_name, :workflow_step, :agent_name)
             ON CONFLICT (id) DO NOTHING
         """),
         {
@@ -342,7 +401,7 @@ async def add_history_item(item: HistoryItemInput, session: AsyncSession = Depen
             "request_payload": json.dumps(item.request_payload) if item.request_payload else None,
             "response_payload": json.dumps(item.response_payload) if item.response_payload else None,
             "workflow_id": item.workflow_id, "workflow_name": item.workflow_name,
-            "workflow_step": item.workflow_step,
+            "workflow_step": item.workflow_step, "agent_name": item.agent_name,
         }
     )
     await session.commit()
@@ -355,8 +414,8 @@ async def bulk_add_history(items: list[HistoryItemInput], session: AsyncSession 
     for item in items:
         result = await session.execute(
             text("""
-                INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload, workflow_id, workflow_name, workflow_step)
-                VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb), :workflow_id, :workflow_name, :workflow_step)
+                INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload, workflow_id, workflow_name, workflow_step, agent_name)
+                VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb), :workflow_id, :workflow_name, :workflow_step, :agent_name)
                 ON CONFLICT (id) DO NOTHING
             """),
             {
@@ -367,7 +426,7 @@ async def bulk_add_history(items: list[HistoryItemInput], session: AsyncSession 
                 "request_payload": json.dumps(item.request_payload) if item.request_payload else None,
                 "response_payload": json.dumps(item.response_payload) if item.response_payload else None,
                 "workflow_id": item.workflow_id, "workflow_name": item.workflow_name,
-                "workflow_step": item.workflow_step,
+                "workflow_step": item.workflow_step, "agent_name": item.agent_name,
             }
         )
         inserted += result.rowcount
@@ -382,7 +441,7 @@ async def get_history_item(item_id: str, session: AsyncSession = Depends(get_ses
             SELECT id, method, endpoint, model, timestamp, duration,
                    tokens, status, status_text, preview, created_at,
                    request_payload, response_payload,
-                   workflow_id, workflow_name, workflow_step
+                   workflow_id, workflow_name, workflow_step, agent_name
             FROM request_history
             WHERE id = :id
         """),
@@ -412,7 +471,7 @@ async def get_history_item(item_id: str, session: AsyncSession = Depends(get_ses
         tokens=row.tokens, status=row.status, status_text=row.status_text,
         preview=row.preview, created_at=row.created_at,
         workflow_id=row.workflow_id, workflow_name=row.workflow_name,
-        workflow_step=row.workflow_step,
+        workflow_step=row.workflow_step, agent_name=row.agent_name,
         request_payload=req_payload,
         response_payload=res_payload,
     )
@@ -616,6 +675,13 @@ async def list_all_dataset_records(
     dataset_id: str = Query(...),
     session: AsyncSession = Depends(get_session),
 ):
+    # Validate dataset exists
+    ds_check = await session.execute(
+        text("SELECT 1 FROM datasets WHERE id = :id"), {"id": dataset_id}
+    )
+    if not ds_check.fetchone():
+        raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+
     count_result = await session.execute(
         text("SELECT COUNT(*) FROM dataset_records WHERE dataset_id = :dataset_id"),
         {"dataset_id": dataset_id}
@@ -1115,12 +1181,12 @@ async def run_workflow(
                                     id, method, endpoint, model, timestamp, duration,
                                     tokens, status, status_text, preview,
                                     request_payload, response_payload,
-                                    workflow_id, workflow_name, workflow_step
+                                    workflow_id, workflow_name, workflow_step, agent_name
                                 ) VALUES (
                                     :id, :method, :endpoint, :model, :timestamp, :duration,
                                     :tokens, :status, :status_text, :preview,
                                     CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb),
-                                    :workflow_id, :workflow_name, :workflow_step
+                                    :workflow_id, :workflow_name, :workflow_step, :agent_name
                                 ) ON CONFLICT (id) DO NOTHING
                             """),
                             {
@@ -1132,6 +1198,7 @@ async def run_workflow(
                                 "request_payload": json.dumps({"variables": resolved_vars, "agent": {"id": str(agent_row.id), "name": agent_row.name}}),
                                 "response_payload": json.dumps({"text": str(e), "truncated": False}),
                                 "workflow_id": wf_id, "workflow_name": wf_name, "workflow_step": idx,
+                                "agent_name": agent_row.name,
                             }
                         )
                         await hist_session.commit()
@@ -1164,12 +1231,12 @@ async def run_workflow(
                                 id, method, endpoint, model, timestamp, duration,
                                 tokens, status, status_text, preview,
                                 request_payload, response_payload,
-                                workflow_id, workflow_name, workflow_step
+                                workflow_id, workflow_name, workflow_step, agent_name
                             ) VALUES (
                                 :id, :method, :endpoint, :model, :timestamp, :duration,
                                 :tokens, :status, :status_text, :preview,
                                 CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb),
-                                :workflow_id, :workflow_name, :workflow_step
+                                :workflow_id, :workflow_name, :workflow_step, :agent_name
                             ) ON CONFLICT (id) DO NOTHING
                         """),
                         {
@@ -1181,6 +1248,7 @@ async def run_workflow(
                             "request_payload": json.dumps(req_payload),
                             "response_payload": json.dumps(res_payload),
                             "workflow_id": wf_id, "workflow_name": wf_name, "workflow_step": idx,
+                            "agent_name": agent_row.name,
                         }
                     )
                     await hist_session.commit()
@@ -1311,8 +1379,8 @@ async def run_agent(agent_id: str, req: AgentRunRequest = None, session: AsyncSe
 
                     await hist_session.execute(
                         text("""
-                            INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload)
-                            VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb))
+                            INSERT INTO request_history (id, method, endpoint, model, timestamp, duration, tokens, status, status_text, preview, request_payload, response_payload, agent_name)
+                            VALUES (:id, :method, :endpoint, :model, :timestamp, :duration, :tokens, :status, :status_text, :preview, CAST(:request_payload AS jsonb), CAST(:response_payload AS jsonb), :agent_name)
                             ON CONFLICT (id) DO NOTHING
                         """),
                         {
@@ -1323,6 +1391,7 @@ async def run_agent(agent_id: str, req: AgentRunRequest = None, session: AsyncSe
                             "preview": preview,
                             "request_payload": json.dumps(req_payload),
                             "response_payload": json.dumps(res_payload),
+                            "agent_name": agent_name,
                         }
                     )
                     await hist_session.commit()
@@ -1330,3 +1399,68 @@ async def run_agent(agent_id: str, req: AgentRunRequest = None, session: AsyncSe
                 pass
 
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+
+# ==================== Chat/Embed Reverse Proxy ====================
+
+
+async def _proxy_request(request: Request, target_url: str):
+    """Forward a request to a vLLM backend, supporting both JSON and SSE streaming."""
+    method = request.method
+    path_qs = str(request.url).split(request.url.path, 1)[-1]  # query string portion
+    url = target_url + path_qs
+
+    # Forward headers (skip hop-by-hop)
+    skip_headers = {"host", "connection", "transfer-encoding"}
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in skip_headers}
+
+    body = await request.body()
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        if method == "GET":
+            upstream = await client.get(url, headers=headers, params=request.query_params)
+            return StreamingResponse(
+                content=iter([upstream.content]),
+                status_code=upstream.status_code,
+                headers=dict(upstream.headers),
+            )
+        else:
+            # POST — check if response is SSE (streaming)
+            req = client.build_request("POST", url, headers=headers, content=body)
+            upstream = await client.send(req, stream=True)
+
+            content_type = upstream.headers.get("content-type", "")
+            if "text/event-stream" in content_type:
+                async def sse_forward():
+                    async for chunk in upstream.aiter_bytes():
+                        yield chunk
+                    await upstream.aclose()
+
+                return StreamingResponse(
+                    content=sse_forward(),
+                    status_code=upstream.status_code,
+                    media_type="text/event-stream",
+                    headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
+                )
+            else:
+                resp_body = await upstream.aread()
+                await upstream.aclose()
+                return StreamingResponse(
+                    content=iter([resp_body]),
+                    status_code=upstream.status_code,
+                    headers=dict(upstream.headers),
+                )
+
+
+@app.api_route("/api/chat/{path:path}", methods=["GET", "POST"])
+async def proxy_chat(path: str, request: Request, session: AsyncSession = Depends(get_session)):
+    chat_url = await resolve_vllm_url(session, "forge_chat_url", "forge_chat_fallback_url", VLLM_CHAT_DEFAULT)
+    target = f"{chat_url}/{path}"
+    return await _proxy_request(request, target)
+
+
+@app.api_route("/api/embed/{path:path}", methods=["GET", "POST"])
+async def proxy_embed(path: str, request: Request, session: AsyncSession = Depends(get_session)):
+    embed_url = await resolve_vllm_url(session, "forge_embed_url", "forge_embed_fallback_url", VLLM_EMBED_DEFAULT)
+    target = f"{embed_url}/{path}"
+    return await _proxy_request(request, target)

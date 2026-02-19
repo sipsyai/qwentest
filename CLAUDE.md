@@ -59,6 +59,8 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 | vLLM Chat API | 8010 | http://192.168.1.8:8010/v1 | http://100.96.50.76:8010/v1 | /api/chat |
 | vLLM Embed API | 8011 | http://192.168.1.8:8011/v1 | http://100.96.50.76:8011/v1 | /api/embed |
 | KB API (FastAPI) | 8833 | http://localhost:8833 | - (sadece local) | /api/kb |
+| KB Reverse Proxy (Chat) | 8833 | http://localhost:8833 | - | /api/chat/* → vLLM 8010 |
+| KB Reverse Proxy (Embed) | 8833 | http://localhost:8833 | - | /api/embed/* → vLLM 8011 |
 | Frontend (Vite) | 3000 | http://localhost:3000 | - | - |
 
 ## Servis Baslatma / Durdurma
@@ -83,4 +85,5 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 ## Database
 - 6 tablo: `kb_documents`, `app_settings`, `request_history`, `datasets`, `dataset_records`, `saved_agents`
 - `kb_documents.search_vector`: tsvector column + GIN index + auto-update trigger (BM25 hybrid search icin)
+- `request_history.agent_name`: agent name tracking column + index
 - Detayli sema: `docs/database/SCHEMA.md`

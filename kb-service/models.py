@@ -29,6 +29,13 @@ class DocumentsListResponse(BaseModel):
     limit: int
 
 
+class DocumentUpdate(BaseModel):
+    text: Optional[str] = None
+    embedding: Optional[list[float]] = None
+    source: Optional[str] = None
+    source_label: Optional[str] = None
+
+
 class BulkDeleteRequest(BaseModel):
     ids: list[str]
 
@@ -97,6 +104,7 @@ class HistoryItemInput(BaseModel):
     workflow_id: Optional[str] = None
     workflow_name: Optional[str] = None
     workflow_step: Optional[int] = None
+    agent_name: Optional[str] = None
 
 
 class HistoryItemResponse(BaseModel):
@@ -114,6 +122,7 @@ class HistoryItemResponse(BaseModel):
     workflow_id: Optional[str] = None
     workflow_name: Optional[str] = None
     workflow_step: Optional[int] = None
+    agent_name: Optional[str] = None
 
 
 class HistoryItemDetailResponse(HistoryItemResponse):

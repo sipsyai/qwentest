@@ -136,7 +136,7 @@ class AgentExecutor:
         self.max_tokens = config.get("maxTokens", 2048)
         self.presence_penalty = config.get("presencePenalty", 0)
         self.frequency_penalty = config.get("frequencyPenalty", 0)
-        self.repetition_penalty = config.get("repetitionPenalty", 1.0)
+        self.repetition_penalty = config.get("repetitionPenalty", 1.1)
         self.seed_str = config.get("seed", "")
         self.stop_sequences = config.get("stopSequences", "")
 
@@ -202,12 +202,9 @@ class AgentExecutor:
         }
         if self.top_k_param > 0:
             body["top_k"] = self.top_k_param
-        if self.presence_penalty != 0:
-            body["presence_penalty"] = self.presence_penalty
-        if self.frequency_penalty != 0:
-            body["frequency_penalty"] = self.frequency_penalty
-        if self.repetition_penalty != 1.0:
-            body["repetition_penalty"] = self.repetition_penalty
+        body["presence_penalty"] = self.presence_penalty
+        body["frequency_penalty"] = self.frequency_penalty
+        body["repetition_penalty"] = self.repetition_penalty
         if self.seed_str:
             try:
                 body["seed"] = int(self.seed_str)

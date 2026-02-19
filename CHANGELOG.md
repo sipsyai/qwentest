@@ -3,6 +3,23 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.21.0] - 2026-02-19
+
+### Added
+- Chat/Embed reverse proxy: `/api/chat/*` and `/api/embed/*` backend routes (httpx forward + SSE streaming)
+- `PUT /api/kb/documents/{id}` endpoint: update text/embedding/source/source_label with conflict detection
+- `DocumentUpdate` Pydantic model (models.py)
+- `agent_name` column on `request_history` table + index
+- Dataset records: 404 response when dataset not found (was returning empty array)
+
+### Fixed
+- `repetition_penalty` default changed 1.0→1.1 and always sent to vLLM (prevents Qwen3 repetitive output)
+- `presence_penalty` and `frequency_penalty` now always included in vLLM request body
+- History: `agent_name` tracked in all 7 INSERT/SELECT locations (run_agent, run_workflow success/error, POST/bulk, GET list/detail)
+
+### Changed
+- `_build_base_body()`: removed conditional guards for penalty params — always send
+
 ## [0.20.0] - 2026-02-19
 
 ### Added
