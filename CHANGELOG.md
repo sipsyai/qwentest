@@ -3,6 +3,18 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.20.0] - 2026-02-19
+
+### Added
+- API Explorer page: interactive endpoint tester with 35 endpoints across 11 categories (Chat, Embeddings, Models, Tokenizer, Health, KB Documents, Datasets, Dataset Records, Agents, Workflows, History)
+- `apiCatalog.ts`: endpoint catalog service with params, example request/response, SSE event definitions, tags
+- `test-api-explorer-endpoints.py`: 47-test API endpoint validation suite
+- Playground Save modal: variable label + defaultValue editing UI per detected `{{variable}}`
+- Playground: `variableOverrides` state restored from saved agent config on load
+
+### Fixed
+- Playground Save modal: JSON syntax colorizer uses single-pass regex (no double-escaping)
+
 ## [0.19.0] - 2026-02-19
 
 ### Added

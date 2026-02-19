@@ -11,6 +11,7 @@ import {
   Sparkles,
   Bot,
   GitBranch,
+  BookOpen,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -58,6 +59,7 @@ const Sidebar = () => {
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Workspace</p>
         </div>
         
+        <NavItem to="/api-explorer" icon={BookOpen} label="API Explorer" />
         <NavItem to="/history" icon={History} label="History" />
         <NavItem to="/settings" icon={Settings} label="Settings" />
       </nav>

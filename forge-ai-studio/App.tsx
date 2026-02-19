@@ -11,6 +11,7 @@ import Datasets from './pages/Datasets';
 import DatasetRecords from './pages/DatasetRecords';
 import Agents from './pages/Agents';
 import Workflows from './pages/Workflows';
+import ApiExplorer from './pages/ApiExplorer';
 import { initSettings } from './services/settingsApi';
 
 const Layout = ({ children }: { children?: React.ReactNode }) => (
@@ -57,6 +58,8 @@ const App = () => {
           <Route path="/dataset-records" element={<DatasetRecords />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/workflows" element={<Workflows />} />
+          <Route path="/api-explorer" element={<ApiExplorer />} />
+          <Route path="/api-explorer/:endpointId" element={<ApiExplorer />} />
         </Routes>
       </Layout>
     </Router>

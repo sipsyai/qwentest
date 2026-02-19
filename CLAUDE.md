@@ -5,8 +5,8 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 
 ## Proje Yapisi
 - `forge-ai-studio/` - Ana React uygulamasi (Vite + TypeScript)
-  - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, DatasetRecords, Agents, Workflows, History, Settings
-  - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, datasetsApi.ts, agentsApi.ts, embedUtils.ts, rag.ts, markdown.ts, mockData.ts
+  - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, DatasetRecords, Agents, Workflows, History, Settings, ApiExplorer
+  - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, datasetsApi.ts, agentsApi.ts, embedUtils.ts, rag.ts, markdown.ts, mockData.ts, apiCatalog.ts
   - `components/` - Sidebar.tsx
 - `kb-service/` - FastAPI + pgvector Knowledge Base backend (main.py, database.py, models.py, agent_executor.py)
 - `docker-compose.yml` - pgvector PostgreSQL container
@@ -18,6 +18,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - `itsm-enrich-forms.py` - Form template keyword enrichment (60/79 forms enriched)
 - `itsm-chatbot-test-runner.py` - 25-scenario ITSM chatbot test suite
 - `itsm-chatbot-scenarios.json` - Test scenario definitions
+- `test-api-explorer-endpoints.py` - 47-test API endpoint validation suite
 
 ## Servisler
 - **vllm.ts**: Chat completion stream, embedding generation, model listesi, fallback URL support (fetchWithFallback)
@@ -29,6 +30,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **agentsApi.ts**: Agents CRUD client, extractVariables(template, ragAliasValues?) utility, runAgent() SSE stream client, runAgentAgentic() ReAct runner
 - **rag.ts**: RAG pipeline (embed query → pgvector search → context injection, `{{context}}` template variable support)
 - **markdown.ts**: Think tag parser + markdown renderer
+- **apiCatalog.ts**: API endpoint catalog (35 endpoints, 11 categories, params, example request/response, SSE events, tags)
 - **mockData.ts**: Test/demo verileri
 
 ## Sayfalar
@@ -41,6 +43,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **Agents**: Saved agent cards with Run/Edit/Delete, direct execution via streaming Run modal (variable inputs, markdown output, think tags, copy/stop), promptTemplate preview + variable badges
 - **Workflows**: Pipeline Builder tab (chain agents, variable mappings, step execution) + Agent Runner tab (3-panel: agent list, workspace, tool registry/config — supports simple + ReAct agents)
 - **History**: Istek gecmisi goruntuleme, expand/collapse detail panel (request payload: messages + params + RAG config, response payload: full text), workflow history tracking (source filter: standalone/workflow, workflow badge, workflow context panel in detail view)
+- **ApiExplorer**: Interactive API endpoint tester — 35 endpoints, 11 categories, request builder, JSON syntax coloring, SSE stream support, URL param routing (`/api-explorer/:endpointId`)
 - **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu
 
 ## Dev Ortami

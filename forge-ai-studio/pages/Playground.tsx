@@ -83,6 +83,7 @@ const Playground = () => {
   const [saving, setSaving] = useState(false);
   const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null);
   const [loadedAgentName, setLoadedAgentName] = useState<string | null>(null);
+  const [variableOverrides, setVariableOverrides] = useState<Record<string, { label: string; defaultValue: string }>>({});
 
   // Agentic Mode State
   const [agentMode, setAgentMode] = useState<'simple' | 'react' | 'plan-execute'>('simple');
@@ -164,6 +165,14 @@ const Playground = () => {
       setEnabledTools(c.enabledTools ?? []);
       setMaxIterations(c.maxIterations ?? 10);
       if (c.promptTemplate) setPrompt(c.promptTemplate);
+      // Restore variable overrides from saved config
+      if (c.variables) {
+        const overrides: Record<string, { label: string; defaultValue: string }> = {};
+        for (const v of c.variables) {
+          overrides[v.name] = { label: v.label || v.name, defaultValue: v.defaultValue || '' };
+        }
+        setVariableOverrides(overrides);
+      }
       if (state.agentId) setLoadedAgentId(state.agentId);
       if (state.agentName) setLoadedAgentName(state.agentName);
       // Clear navigation state to prevent reload on refresh
@@ -196,8 +205,8 @@ const Playground = () => {
     promptTemplate: prompt,
     variables: detectedVariables.map(name => ({
       name,
-      label: name.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()),
-      defaultValue: '',
+      label: variableOverrides[name]?.label || name.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()),
+      defaultValue: variableOverrides[name]?.defaultValue || '',
     })),
     // Agentic fields
     agentMode,
@@ -1024,7 +1033,7 @@ const Playground = () => {
       {/* Save Agent Modal */}
       {showSaveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl max-h-[85vh] overflow-y-auto custom-scrollbar">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-white font-semibold text-lg">
                 {loadedAgentId ? 'Update Agent' : 'Save as Agent'}
@@ -1063,13 +1072,51 @@ const Playground = () => {
                     {prompt.length > 300 ? prompt.slice(0, 300) + '...' : prompt}
                   </div>
                   {detectedVariables.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      <span className="text-[10px] text-slate-500 font-bold uppercase">Variables:</span>
-                      {detectedVariables.map(v => (
-                        <span key={v} className="text-[11px] px-2 py-0.5 rounded-full bg-blue-900/30 text-blue-400 border border-blue-900/50 font-mono">
-                          {`{{${v}}}`}
-                        </span>
-                      ))}
+                    <div className="mt-3 space-y-2">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">
+                        Variables ({detectedVariables.length} detected)
+                      </span>
+                      <div className="space-y-2">
+                        {detectedVariables.map(v => {
+                          const autoLabel = v.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+                          const override = variableOverrides[v] || { label: '', defaultValue: '' };
+                          return (
+                            <div key={v} className="bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-2">
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-900/30 text-blue-400 border border-blue-900/50 font-mono">
+                                {`{{${v}}}`}
+                              </span>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[10px] text-slate-500 block mb-0.5">Label</label>
+                                  <input
+                                    type="text"
+                                    value={override.label}
+                                    placeholder={autoLabel}
+                                    onChange={(e) => setVariableOverrides(prev => ({
+                                      ...prev,
+                                      [v]: { ...prev[v], label: e.target.value, defaultValue: prev[v]?.defaultValue || '' },
+                                    }))}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white focus:ring-1 focus:ring-blue-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-slate-500 block mb-0.5">Default Value</label>
+                                  <input
+                                    type="text"
+                                    value={override.defaultValue}
+                                    placeholder="Default value (optional)"
+                                    onChange={(e) => setVariableOverrides(prev => ({
+                                      ...prev,
+                                      [v]: { ...prev[v], defaultValue: e.target.value, label: prev[v]?.label || '' },
+                                    }))}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white focus:ring-1 focus:ring-blue-500 outline-none"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
