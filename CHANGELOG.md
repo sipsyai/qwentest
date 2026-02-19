@@ -3,6 +3,21 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.17.0] - 2026-02-19
+
+### Added
+- Per-source RAG variables: `ragSourceAliases` config field — her RAG source için ayrı `{{alias}}` prompt değişkeni
+- `_source_to_var()` static method: source label'ları otomatik slug'a çevirir (örn. "ITSM KB" → "itsm_kb")
+- Playground RAG Config paneli: "Prompt Variables" bölümü — her seçili source için alias input + live `{{alias}}` preview
+- Playground: çoklu source seçilince tip text, per-source değişkenleri gösterir
+- `extractVariables()`: ragAliasValues parametresi — alias değerleri user variable olarak görünmez
+
+### Changed
+- `AgentConfig` interface: `ragSourceAliases?: Record<string, string>` eklendi
+- `_resolve_template()`: `_RESERVED_VARS | self._rag_vars` — alias placeholder'lar template resolution'da korunur
+- `_resolve_rag()`: per_source_rows dict ile her source ayrı tracked; `per_source_injected` flag ile `{{context}}` auto-inject sadece alias kullanılmadığında çalışır
+- Workflows step_done: `output_preview` 500-karakter kesintisi kaldırıldı (backend), streamed text'e öncelik verildi (frontend)
+
 ## [0.16.0] - 2026-02-18
 
 ### Added

@@ -484,7 +484,8 @@ const Workflows = () => {
         setPipeStepStates((prev) => ({ ...prev, [data.step_id]: 'done' }));
         setPipeStepOutputs((prev) => ({
           ...prev,
-          [data.step_id]: data.output_preview || prev[data.step_id] || '',
+          // Prefer full streamed text over the 500-char output_preview
+          [data.step_id]: prev[data.step_id] || data.output_preview || '',
         }));
       },
       onStepError: (data) => {

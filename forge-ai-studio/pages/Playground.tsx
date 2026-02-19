@@ -73,6 +73,7 @@ const Playground = () => {
   const [kbDocCount, setKbDocCount] = useState(0);
   const [embedModel, setEmbedModel] = useState('');
   const [ragSources, setRagSources] = useState<string[]>([]);
+  const [ragSourceAliases, setRagSourceAliases] = useState<Record<string, string>>({});
   const [availableSources, setAvailableSources] = useState<string[]>([]);
 
   // Save Agent State
@@ -157,6 +158,7 @@ const Playground = () => {
       setRagTopK(c.ragTopK ?? 3);
       setRagThreshold(c.ragThreshold ?? 0.3);
       setRagSources(c.ragSources ?? []);
+      setRagSourceAliases(c.ragSourceAliases ?? {});
       // Agentic fields
       setAgentMode(c.agentMode ?? 'simple');
       setEnabledTools(c.enabledTools ?? []);
@@ -169,7 +171,7 @@ const Playground = () => {
     }
   }, []);
 
-  const detectedVariables = extractVariables(prompt);
+  const detectedVariables = extractVariables(prompt, Object.values(ragSourceAliases));
 
   const collectConfig = (): AgentConfig => ({
     systemPrompt,
@@ -190,6 +192,7 @@ const Playground = () => {
     ragTopK,
     ragThreshold,
     ragSources,
+    ragSourceAliases,
     promptTemplate: prompt,
     variables: detectedVariables.map(name => ({
       name,
@@ -364,6 +367,10 @@ const Playground = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const getAlias = (label: string) =>
+    ragSourceAliases[label] ||
+    label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
   const Toggle = ({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label: string }) => (
     <label className="flex items-center gap-3 cursor-pointer">
       <div className={`w-10 h-5 rounded-full relative transition-colors ${value ? 'bg-blue-600' : 'bg-slate-700'}`} onClick={() => onChange(!value)}>
@@ -492,7 +499,28 @@ const Playground = () => {
             />
             {ragEnabled && (
               <p className="mt-2 text-xs text-slate-500">
-                Tip: Use <code className="text-amber-400/80 bg-amber-900/20 px-1.5 py-0.5 rounded font-mono">{'{{context}}'}</code> in your prompt to place RAG chunks exactly where you want.
+                {ragSources.length > 1 ? (
+                  <>
+                    Multi-source RAG — per-source variables:{' '}
+                    {ragSources.map(s => (
+                      <code key={s} className="text-amber-400/80 bg-amber-900/20 px-1 py-0.5 rounded font-mono mx-0.5">
+                        {`{{${getAlias(s)}}}`}
+                      </code>
+                    ))}
+                    {' '}or combined{' '}
+                    <code className="text-amber-400/80 bg-amber-900/20 px-1 py-0.5 rounded font-mono">
+                      {'{{context}}'}
+                    </code>
+                  </>
+                ) : (
+                  <>
+                    Tip: Use{' '}
+                    <code className="text-amber-400/80 bg-amber-900/20 px-1.5 py-0.5 rounded font-mono">
+                      {'{{context}}'}
+                    </code>{' '}
+                    in your prompt to place RAG chunks exactly where you want.
+                  </>
+                )}
               </p>
             )}
           </section>
@@ -578,6 +606,36 @@ const Playground = () => {
                       Clear all
                     </button>
                   )}
+                </div>
+              )}
+
+              {ragSources.length > 0 && (
+                <div className="space-y-1.5 border-t border-amber-900/20 pt-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Prompt Variables</span>
+                  {ragSources.map(label => {
+                    const autoAlias = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                    return (
+                      <div key={label} className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400 truncate max-w-[150px]">{label}</span>
+                        <span className="text-slate-600 text-xs">→</span>
+                        <input
+                          type="text"
+                          value={ragSourceAliases[label] || ''}
+                          placeholder={autoAlias}
+                          onChange={(e) =>
+                            setRagSourceAliases(prev => ({
+                              ...prev,
+                              [label]: e.target.value.replace(/[^a-z0-9_]/g, '_').toLowerCase(),
+                            }))
+                          }
+                          className="text-[11px] font-mono px-2 py-0.5 bg-slate-900 border border-slate-700 rounded text-amber-400 w-36 focus:outline-none focus:border-amber-600"
+                        />
+                        <code className="text-[10px] text-slate-500 font-mono">
+                          {`{{${ragSourceAliases[label] || autoAlias}}}`}
+                        </code>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 

@@ -101,6 +101,15 @@ class AgentExecutor:
         self.rag_top_k = config.get("ragTopK", 3)
         self.rag_threshold = config.get("ragThreshold", 0.3)
         self.rag_sources = config.get("ragSources", [])
+        self.rag_source_aliases = config.get("ragSourceAliases", {})
+
+        # Per-instance reserved vars: "context" + all alias values
+        self._rag_vars: set = set()
+        if self.rag_enabled:
+            self._rag_vars.add("context")
+            for source in self.rag_sources:
+                alias = self.rag_source_aliases.get(source) or self._source_to_var(source)
+                self._rag_vars.add(alias)
 
         # Guard: thinking + jsonMode conflict — thinking tags break JSON output
         if self.json_mode and self.thinking:
@@ -114,13 +123,22 @@ class AgentExecutor:
         self.start_time = 0
 
     def _resolve_template(self, template: str, vars_dict: dict) -> str:
-        """Resolve {{variable}} placeholders in a template string, preserving reserved vars like {{context}}."""
+        """Resolve {{variable}} placeholders in a template string.
+
+        Reserved vars (e.g. {{context}}) are preserved for RAG injection UNLESS
+        they are explicitly provided in vars_dict (e.g. injected by a workflow step).
+        """
         def replacer(m):
             name = m.group(1)
-            if name in _RESERVED_VARS:
+            if name in (_RESERVED_VARS | self._rag_vars) and name not in vars_dict:
                 return m.group(0)
             return vars_dict.get(name, "")
         return _VARIABLE_PATTERN.sub(replacer, template)
+
+    @staticmethod
+    def _source_to_var(source: str) -> str:
+        """'ITSM Knowledge Base' → 'itsm_knowledge_base'"""
+        return re.sub(r'[^a-z0-9]+', '_', source.lower()).strip('_')
 
     def _build_base_body(self, stream: bool = False) -> dict:
         """Build the base vLLM request body (without messages/tools)."""
@@ -243,18 +261,20 @@ class AgentExecutor:
 
         Uses variable values as the embedding query instead of the full prompt.
         This prevents instruction text from biasing the semantic search results.
+
+        When multiple sources are specified, performs per-source queries with a minimum
+        quota per source (at least 2 slots each) so that lower-similarity sources like
+        form templates are never entirely pushed out by higher-similarity KB articles.
         """
         if not self.rag_enabled or not self.embed_url or not self.embed_model:
             return resolved_prompt, resolved_system, 0
 
         try:
             # Build semantic query from variable values only (not the full prompt)
-            # This prevents instruction text from biasing RAG results
             rag_query = ""
             if variables:
                 var_values = [str(v) for v in variables.values() if v]
                 rag_query = " ".join(var_values)
-            # Fallback to full prompt if no variables
             if not rag_query.strip():
                 rag_query = resolved_prompt
 
@@ -267,43 +287,145 @@ class AgentExecutor:
                 embed_data = embed_resp.json()
                 query_embedding = embed_data["data"][0]["embedding"]
 
-            # Search pgvector
             embedding_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
-            search_params = {
-                "embedding": embedding_str,
-                "threshold": self.rag_threshold,
-                "top_k": self.rag_top_k,
-            }
-            conditions = []
-            if self.rag_sources:
-                src_placeholders = ", ".join(f":src_{i}" for i in range(len(self.rag_sources)))
-                conditions.append(f"source_label IN ({src_placeholders})")
-                for i, src in enumerate(self.rag_sources):
-                    search_params[f"src_{i}"] = src
 
-            where_clause = ""
-            if conditions:
-                where_clause = "AND " + " AND ".join(conditions)
+            # Per-source quota: when multiple sources are provided, fetch from each source
+            # with a guaranteed minimum slot allocation per source.
+            #
+            # Strategy:
+            #  - Primary source (KB articles): fills the bulk of the context
+            #  - Secondary sources (form templates etc.): always get SECONDARY_QUOTA
+            #    dedicated slots regardless of their similarity scores, so the correct
+            #    form template is never pushed out by high-sim KB articles.
+            per_source_rows: dict = {}  # source_label → rows
+            if len(self.rag_sources) > 1:
+                SECONDARY_QUOTA = 3   # guaranteed slots per secondary source
+                n_secondary = len(self.rag_sources) - 1
+                primary_k = max(1, self.rag_top_k - SECONDARY_QUOTA * n_secondary)
+                secondary_threshold = max(0.15, self.rag_threshold - 0.15)
 
-            search_query = f"""
-                SELECT text, 1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
-                FROM kb_documents
-                WHERE 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
-                {where_clause}
-                ORDER BY similarity DESC
-                LIMIT :top_k
-            """
-            search_result = await self.session.execute(sql_text(search_query), search_params)
-            search_rows = search_result.fetchall()
+                seen_texts: set = set()
+                primary_rows = []
+                secondary_rows: list = []   # list of list, one per secondary source
+
+                for src_idx, source in enumerate(self.rag_sources):
+                    if src_idx == 0:
+                        # Primary: fetch primary_k results at normal threshold
+                        src_params = {
+                            "embedding": embedding_str,
+                            "threshold": self.rag_threshold,
+                            "top_k": primary_k,
+                            "src_0": source,
+                        }
+                        src_query = """
+                            SELECT text, source_label,
+                                   1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
+                            FROM kb_documents
+                            WHERE 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
+                              AND source_label = :src_0
+                            ORDER BY similarity DESC
+                            LIMIT :top_k
+                        """
+                        src_result = await self.session.execute(sql_text(src_query), src_params)
+                        for row in src_result.fetchall():
+                            key = row.text[:80]
+                            if key not in seen_texts:
+                                seen_texts.add(key)
+                                primary_rows.append(row)
+                        per_source_rows[source] = primary_rows
+                    else:
+                        # Secondary: fetch SECONDARY_QUOTA results at lower threshold
+                        src_params = {
+                            "embedding": embedding_str,
+                            "threshold": secondary_threshold,
+                            "top_k": SECONDARY_QUOTA,
+                            "src_0": source,
+                        }
+                        src_query = """
+                            SELECT text, source_label,
+                                   1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
+                            FROM kb_documents
+                            WHERE 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
+                              AND source_label = :src_0
+                            ORDER BY similarity DESC
+                            LIMIT :top_k
+                        """
+                        src_result = await self.session.execute(sql_text(src_query), src_params)
+                        sec_rows = []
+                        for row in src_result.fetchall():
+                            key = row.text[:80]
+                            if key not in seen_texts:
+                                seen_texts.add(key)
+                                sec_rows.append(row)
+                        per_source_rows[source] = sec_rows
+                        secondary_rows.append(sec_rows)
+
+                # Combine: KB results first (sorted by sim), then secondary sources
+                search_rows = primary_rows
+                for sec in secondary_rows:
+                    search_rows = search_rows + sec
+                # Final cap at rag_top_k
+                search_rows = search_rows[:self.rag_top_k]
+
+            else:
+                # Single source — original single-query path
+                search_params = {
+                    "embedding": embedding_str,
+                    "threshold": self.rag_threshold,
+                    "top_k": self.rag_top_k,
+                }
+                conditions = []
+                if self.rag_sources:
+                    src_placeholders = ", ".join(f":src_{i}" for i in range(len(self.rag_sources)))
+                    conditions.append(f"source_label IN ({src_placeholders})")
+                    for i, src in enumerate(self.rag_sources):
+                        search_params[f"src_{i}"] = src
+
+                where_clause = "AND " + " AND ".join(conditions) if conditions else ""
+                search_query = f"""
+                    SELECT text, source_label,
+                           1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
+                    FROM kb_documents
+                    WHERE 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
+                    {where_clause}
+                    ORDER BY similarity DESC
+                    LIMIT :top_k
+                """
+                search_result = await self.session.execute(sql_text(search_query), search_params)
+                search_rows = search_result.fetchall()
+                if self.rag_sources:
+                    per_source_rows[self.rag_sources[0]] = list(search_rows)
 
             if search_rows:
-                context_text = "\n\n---\n\n".join(r.text for r in search_rows)
                 count = len(search_rows)
 
+                # 1. Per-source injection: each source's rows into its alias placeholder
+                per_source_injected = False
+                for source in self.rag_sources:
+                    alias = self.rag_source_aliases.get(source) or self._source_to_var(source)
+                    rows = per_source_rows.get(source, [])
+                    placeholder = "{{" + alias + "}}"
+                    if rows:
+                        source_text = "\n\n---\n\n".join(r.text for r in rows)
+                        if placeholder in resolved_prompt:
+                            resolved_prompt = resolved_prompt.replace(placeholder, source_text)
+                            per_source_injected = True
+                        elif placeholder in resolved_system:
+                            resolved_system = resolved_system.replace(placeholder, source_text)
+                            per_source_injected = True
+                    # Clean up unfilled alias placeholders
+                    resolved_prompt = resolved_prompt.replace(placeholder, "")
+                    resolved_system = resolved_system.replace(placeholder, "")
+
+                # 2. {{context}} catch-all (backward compat — combined results)
+                context_text = "\n\n---\n\n".join(r.text for r in search_rows)
                 if "{{context}}" in resolved_prompt:
                     resolved_prompt = resolved_prompt.replace("{{context}}", context_text)
-                else:
-                    resolved_system = resolved_system + f"\n\n[Retrieved Context]\n{context_text}"
+                elif "{{context}}" in resolved_system:
+                    resolved_system = resolved_system.replace("{{context}}", context_text)
+                elif not per_source_injected:
+                    # Auto-inject only when no per-source injection was done
+                    resolved_system += f"\n\n[Retrieved Context]\n{context_text}"
 
                 return resolved_prompt, resolved_system, count
 

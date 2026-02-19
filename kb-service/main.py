@@ -1084,7 +1084,7 @@ async def run_workflow(
             prev_output = final_text
             step_outputs[step_id] = final_text
 
-            yield f"event: step_done\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'output_preview': final_text[:500], 'output_length': len(final_text)})}\n\n"
+            yield f"event: step_done\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'output_preview': final_text, 'output_length': len(final_text)})}\n\n"
 
         # All steps done
         yield f"event: workflow_done\ndata: {json.dumps({'total_steps': len(steps), 'step_outputs': {k: v[:200] for k, v in step_outputs.items()}})}\n\n"

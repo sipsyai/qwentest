@@ -29,6 +29,7 @@ export interface AgentConfig {
   ragTopK: number;
   ragThreshold: number;
   ragSources: string[];
+  ragSourceAliases?: Record<string, string>;
   promptTemplate: string;
   variables: AgentVariable[];
   // Agentic fields
@@ -131,11 +132,12 @@ export async function getAvailableTools(): Promise<ToolInfo[]> {
 
 // --- Variable extraction ---
 
-export function extractVariables(template: string): string[] {
+export function extractVariables(template: string, ragAliasValues?: string[]): string[] {
+  const reserved = new Set(['context', ...(ragAliasValues ?? [])]);
   const matches = template.matchAll(/\{\{(\w+)\}\}/g);
   const vars = new Set<string>();
   for (const m of matches) {
-    if (m[1] !== 'context') vars.add(m[1]);
+    if (!reserved.has(m[1])) vars.add(m[1]);
   }
   return [...vars];
 }
