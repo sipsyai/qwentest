@@ -20,10 +20,15 @@ Embedding vektorleri ve kaynak metinleri saklayan ana tablo. pgvector extension 
 | `source` | VARCHAR(20) | NOT NULL, DEFAULT 'manual' | Kaynak tipi: `manual` veya `dataset` |
 | `source_label` | VARCHAR(255) | NOT NULL, DEFAULT '' | Kaynak etiketi (orn. "knowledge-bases #5") |
 | `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Olusturulma zamani |
+| `search_vector` | tsvector | AUTO-GENERATED | Full-text search vektoru (text kolonundan otomatik turetilir) |
 
 **Indexler:**
 - `idx_kb_embedding` - HNSW index on `embedding` (vector_cosine_ops) - Semantic search icin
 - `idx_kb_text_unique` - UNIQUE index on `md5(text)` - Duplicate metin onleme
+- `idx_kb_search_vector` - GIN index on `search_vector` - BM25 keyword search icin
+
+**Trigger:**
+- `trg_kb_search_vector` - BEFORE INSERT OR UPDATE trigger: `text` kolonundan `search_vector` tsvector'u otomatik gunceller (`to_tsvector('simple', text)`)
 
 ---
 

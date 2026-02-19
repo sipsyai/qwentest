@@ -8,12 +8,16 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
   - `pages/` - Playground, Models, ModelDetail, Embeddings, Datasets, DatasetRecords, Agents, Workflows, History, Settings
   - `services/` - vllm.ts, kbApi.ts, settingsApi.ts, historyApi.ts, datasetsApi.ts, agentsApi.ts, embedUtils.ts, rag.ts, markdown.ts, mockData.ts
   - `components/` - Sidebar.tsx
-- `kb-service/` - FastAPI + pgvector Knowledge Base backend (main.py, database.py, models.py)
+- `kb-service/` - FastAPI + pgvector Knowledge Base backend (main.py, database.py, models.py, agent_executor.py)
 - `docker-compose.yml` - pgvector PostgreSQL container
 - `docs/api/` - vLLM API dokumantasyonu (chat-completions, embeddings, completions, tool-calling, tokenizer, qwen3-thinking, health, models)
 - `docs/app/` - Uygulama dokumantasyonu
 - `docs/database/SCHEMA.md` - Database sema dokumantasyonu (tablolar, indexler, iliskiler, API mapping)
 - `test-api.py` - API test scripti (health, chat, thinking, completions, embed, tokenizer, streaming, edge)
+- `itsm-improve.py` - Agent config updater (ragSourceConfig, systemPrompt, ragSources)
+- `itsm-enrich-forms.py` - Form template keyword enrichment (60/79 forms enriched)
+- `itsm-chatbot-test-runner.py` - 25-scenario ITSM chatbot test suite
+- `itsm-chatbot-scenarios.json` - Test scenario definitions
 
 ## Servisler
 - **vllm.ts**: Chat completion stream, embedding generation, model listesi, fallback URL support (fetchWithFallback)
@@ -75,4 +79,5 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 
 ## Database
 - 6 tablo: `kb_documents`, `app_settings`, `request_history`, `datasets`, `dataset_records`, `saved_agents`
+- `kb_documents.search_vector`: tsvector column + GIN index + auto-update trigger (BM25 hybrid search icin)
 - Detayli sema: `docs/database/SCHEMA.md`

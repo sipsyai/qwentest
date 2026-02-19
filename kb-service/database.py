@@ -183,6 +183,37 @@ async def init_db():
             )
         """))
 
+        # Full-text search: tsvector column + GIN index + auto-update trigger
+        await conn.execute(text("""
+            ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS search_vector tsvector
+        """))
+        # Backfill existing rows ('simple' config = tokenize + lowercase, no stemming)
+        await conn.execute(text("""
+            UPDATE kb_documents SET search_vector = to_tsvector('simple', coalesce(text, ''))
+            WHERE search_vector IS NULL
+        """))
+        # GIN index for fast full-text search
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_kb_search_vector
+            ON kb_documents USING gin (search_vector)
+        """))
+        # Auto-update trigger
+        await conn.execute(text("""
+            CREATE OR REPLACE FUNCTION kb_search_vector_update() RETURNS TRIGGER AS $$
+            BEGIN
+                NEW.search_vector := to_tsvector('simple', coalesce(NEW.text, ''));
+                RETURN NEW;
+            END; $$ LANGUAGE plpgsql
+        """))
+        # Drop and recreate trigger to ensure it's current
+        await conn.execute(text("""
+            DROP TRIGGER IF EXISTS trg_kb_search_vector ON kb_documents
+        """))
+        await conn.execute(text("""
+            CREATE TRIGGER trg_kb_search_vector BEFORE INSERT OR UPDATE ON kb_documents
+            FOR EACH ROW EXECUTE FUNCTION kb_search_vector_update()
+        """))
+
         # Seed default settings if table is empty
         result = await conn.execute(text("SELECT COUNT(*) FROM app_settings"))
         count = result.scalar()

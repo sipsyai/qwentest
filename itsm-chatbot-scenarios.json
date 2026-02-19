@@ -1,0 +1,252 @@
+[
+  {
+    "id": "CB01",
+    "category": "Şifre & MFA",
+    "difficulty": "easy",
+    "user_tone": "normal",
+    "question": "Merhaba, şifremi değiştirmek istiyorum ama nereden yapacağımı bilmiyorum. Yardımcı olur musunuz?",
+    "expected_form": "Sifre ve MFA Destegi",
+    "expected_keywords": ["şifre", "MFA", "sıfırlama"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB02",
+    "category": "Donanım",
+    "difficulty": "medium",
+    "user_tone": "frustrated",
+    "question": "Laptop'um sabahtan beri açılmıyor, ekran tamamen siyah. Dün gece Windows güncellemesi yaparken kapattım acaba ondan mı oldu? Acil toplantım var 1 saate.",
+    "expected_form": "Masaustu / Laptop Arizasi",
+    "expected_keywords": ["laptop", "açılmıyor", "güncelleme"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB03",
+    "category": "Yazılım",
+    "difficulty": "easy",
+    "user_tone": "normal",
+    "question": "Bilgisayarıma Zoom kurmam gerekiyor, müşteri toplantıları için zorunlu oldu. Nasıl bir süreç izlemeliyim?",
+    "expected_form": "Yazilim Kurulumu",
+    "expected_keywords": ["yazılım", "kurulum", "yükleme"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB04",
+    "category": "Ağ & VPN",
+    "difficulty": "medium",
+    "user_tone": "normal",
+    "question": "Evden çalışıyorum ve VPN'e bağlanmaya çalışıyorum ama 'Connection timed out' hatası alıyorum. Daha önce sorunsuz çalışıyordu, bugün başladı bu sorun.",
+    "expected_form": "VPN Kullanici Kurulumu",
+    "expected_keywords": ["VPN", "bağlantı", "zaman aşımı"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB05",
+    "category": "E-posta",
+    "difficulty": "medium",
+    "user_tone": "formal",
+    "question": "Outlook üzerinden e-posta gönderemiyorum. Giden kutusunda takılı kalıyor mesajlar. Alım tarafında ise sorun yok, mail alabiliyorum. Bilginize.",
+    "expected_form": "E-posta Arizasi",
+    "expected_keywords": ["e-posta", "Outlook", "gönderim"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB06",
+    "category": "Yazdırma",
+    "difficulty": "easy",
+    "user_tone": "casual",
+    "question": "3. kattaki yazıcı kağıt sıkıştırıyor sürekli, bi bakabilir misiniz?",
+    "expected_form": "Yazici Arizasi",
+    "expected_keywords": ["yazıcı", "kağıt", "arıza"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB07",
+    "category": "Erişim & Onboarding",
+    "difficulty": "medium",
+    "user_tone": "normal",
+    "question": "Pazartesi yeni bir çalışan başlıyor ekibimizde. Ahmet Yılmaz, Satış departmanı. CRM, e-posta ve paylaşımlı klasörlere erişimi lazım. Hesaplarını açar mısınız?",
+    "expected_form": "Yeni / Ayrilan Calisan",
+    "expected_keywords": ["yeni çalışan", "hesap", "erişim"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB08",
+    "category": "Erişim",
+    "difficulty": "easy",
+    "user_tone": "normal",
+    "question": "Finans departmanının paylaşımlı klasörüne erişim istiyorum. Yöneticim Mehmet Bey onay verdi.",
+    "expected_form": "Dosya ve Klasor Erisim Talebi",
+    "expected_keywords": ["klasör", "erişim", "yetki"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB09",
+    "category": "Güvenlik",
+    "difficulty": "medium",
+    "user_tone": "panicked",
+    "question": "Az önce bir mail geldi, şirket CEO'sundan gibi görünüyor ama adres farklı. İçinde acil havale yapın diyor. Tıklamadım ama ne yapmalıyım, bu sahte mi?",
+    "expected_form": "Oltalama Bildirimi",
+    "expected_keywords": ["phishing", "oltalama", "şüpheli"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB10",
+    "category": "Ağ",
+    "difficulty": "hard",
+    "user_tone": "urgent",
+    "question": "Tüm departmanda internet çöktü! 2. kattaki hiç kimse internete bağlanamıyor, Wi-Fi bağlı gözüküyor ama sayfa açmıyor. 15 kişilik ekip iş yapamıyor şu an.",
+    "expected_form": "Ag Kesintisi",
+    "expected_keywords": ["ağ", "kesinti", "internet"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB11",
+    "category": "Donanım",
+    "difficulty": "easy",
+    "user_tone": "normal",
+    "question": "İkinci bir monitör talep etmek istiyorum. Çift ekran ile çalışmam gerekiyor, yöneticim onayladı.",
+    "expected_form": "Donanim Talebi",
+    "expected_keywords": ["monitör", "donanım", "talep"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB12",
+    "category": "Video Konferans",
+    "difficulty": "medium",
+    "user_tone": "frustrated",
+    "question": "Teams toplantısında kamerayı açamıyorum, 'Kamera başka bir uygulama tarafından kullanılıyor' diyor. Hiçbir uygulama açık değil ama. Her toplantıda aynı sorun!",
+    "expected_form": "Video Konferans Destegi",
+    "expected_keywords": ["kamera", "Teams", "toplantı"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB13",
+    "category": "Performans",
+    "difficulty": "easy",
+    "user_tone": "normal",
+    "question": "C diskimde yer kalmadı, sürekli uyarı çıkıyor. Hangi dosyaları silebilirim, yardım eder misiniz?",
+    "expected_form": "Sorun Giderme",
+    "expected_keywords": ["disk", "alan", "temizlik"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB14",
+    "category": "İş Uygulaması",
+    "difficulty": "medium",
+    "user_tone": "formal",
+    "question": "CRM sisteminde müşteri kayıtlarını görüntüleyemiyorum, 'Yetkisiz erişim' hatası veriyor. Satış ekibindeyim ve bu bilgilere erişmem gerekiyor.",
+    "expected_form": "CRM Destegi",
+    "expected_keywords": ["CRM", "erişim", "yetki"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB15",
+    "category": "Güvenlik",
+    "difficulty": "easy",
+    "user_tone": "curious",
+    "question": "Masamda bir USB bellek buldum, kimin olduğunu bilmiyorum. Bilgisayara takıp bakabilir miyim yoksa güvenlik riski mi?",
+    "expected_form": "Guvenlik Olayi Bildirimi",
+    "expected_keywords": ["USB", "güvenlik", "risk"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB16",
+    "category": "Yazdırma",
+    "difficulty": "easy",
+    "user_tone": "normal",
+    "question": "Muhasebe katındaki yazıcının toneri bitti, yenisini sipariş edebilir misiniz? HP LaserJet Pro M404 modeli.",
+    "expected_form": "Toner / Sarf Malzeme Talebi",
+    "expected_keywords": ["toner", "yazıcı", "sipariş"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB17",
+    "category": "Sunucu",
+    "difficulty": "hard",
+    "user_tone": "technical",
+    "question": "Geliştirme ortamındaki sunucunun son yedeği ne zaman alındı kontrol edebilir misiniz? Yarın büyük bir deployment var, yedekten geri dönüş yapabilmemiz gerekebilir.",
+    "expected_form": "Yedekleme Dogrulama Talebi",
+    "expected_keywords": ["yedek", "sunucu", "geri yükleme"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB18",
+    "category": "Yazılım",
+    "difficulty": "medium",
+    "user_tone": "normal",
+    "question": "Excel'de 'Ürün lisanınız devre dışı bırakıldı' hatası çıkıyor. Word ve PowerPoint'te de aynı durum var. Office kullanamıyorum.",
+    "expected_form": "Microsoft Office Destegi",
+    "expected_keywords": ["Office", "lisans", "Excel"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB19",
+    "category": "Erişim & Offboarding",
+    "difficulty": "hard",
+    "user_tone": "formal",
+    "question": "Zeynep Kaya cuma günü itibarıyla şirketten ayrılacak. Tüm sistem erişimlerinin kapatılması, e-posta hesabının yönlendirilmesi ve paylaşımlı dosyalarının devredilmesi gerekiyor.",
+    "expected_form": "Yeni / Ayrilan Calisan",
+    "expected_keywords": ["ayrılan", "hesap kapatma", "erişim"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB20",
+    "category": "Ağ",
+    "difficulty": "easy",
+    "user_tone": "complaining",
+    "question": "İnternet çok yavaş bugün, sayfalar 30 saniyede açılıyor. Dün gayet iyiydi, ne oldu acaba?",
+    "expected_form": "Ag Sorun Giderme",
+    "expected_keywords": ["internet", "yavaş", "ağ"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB21",
+    "category": "Çoklu Sorun",
+    "difficulty": "hard",
+    "user_tone": "long_detailed",
+    "question": "Birkaç sorunum var aynı anda: 1) Laptop'um çok yavaşladı, fan sürekli çalışıyor. 2) VPN'e bağlanamıyorum evden. 3) Outlook'ta eski maillerim kayboldu sanırım. Hangisinden başlamalıyız?",
+    "expected_form": null,
+    "expected_keywords": ["laptop", "VPN", "Outlook"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_keywords"]
+  },
+  {
+    "id": "CB22",
+    "category": "Belirsiz",
+    "difficulty": "hard",
+    "user_tone": "vague",
+    "question": "Bilgisayar çalışmıyor.",
+    "expected_form": null,
+    "expected_keywords": ["bilgisayar", "sorun"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_keywords"]
+  },
+  {
+    "id": "CB23",
+    "category": "Kapsam Dışı",
+    "difficulty": "easy",
+    "user_tone": "normal",
+    "question": "Ofis mutfağındaki buzdolabı bozulmuş, yemeklerimiz bozulacak. Kime bildirmemiz gerekiyor?",
+    "expected_form": null,
+    "expected_keywords": ["kapsam", "bilgi taban"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "is_out_of_scope", "has_keywords"]
+  },
+  {
+    "id": "CB24",
+    "category": "Ağ & Güvenlik",
+    "difficulty": "hard",
+    "user_tone": "technical",
+    "question": "Geliştirme sunucumuzdan dış API'ye (payment gateway) erişim gerekiyor. 443 portunda outbound firewall kuralı açılması lazım. Sunucu IP: 10.0.5.23, hedef: api.payment.com",
+    "expected_form": "Guvenlik Duvari Kurallari",
+    "expected_keywords": ["firewall", "port", "kural"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  },
+  {
+    "id": "CB25",
+    "category": "Eğitim",
+    "difficulty": "medium",
+    "user_tone": "curious",
+    "question": "Ekibimiz için siber güvenlik farkındalık eğitimi düzenletmek istiyoruz. 20 kişilik bir grup, phishing ve sosyal mühendislik konularında. Böyle bir hizmetiniz var mı?",
+    "expected_form": "BT Egitim Talebi",
+    "expected_keywords": ["eğitim", "güvenlik", "farkındalık"],
+    "checks": ["no_email", "no_chinese", "has_turkish", "has_content", "has_form_reference", "form_match", "has_keywords"]
+  }
+]

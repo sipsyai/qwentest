@@ -3,6 +3,27 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.19.0] - 2026-02-19
+
+### Added
+- Hybrid search: BM25 keyword + vector cosine via Reciprocal Rank Fusion (RRF) in `_hybrid_search()`
+- Turkish synonym expansion for 20 IT domain terms (e.g. yazici→printer, sifre→password)
+- Per-source RAG config (`ragSourceConfig`): configurable topK/threshold per source, replaces hardcoded `SECONDARY_QUOTA=3`
+- RAG debug metadata captured in history payload (scores, sources, search timing)
+- `search_vector` tsvector column + GIN index + auto-update trigger on `kb_documents` table
+- `itsm-enrich-forms.py`: Form template keyword enrichment script (60/79 forms enriched)
+- `itsm-chatbot-test-runner.py`: 25-scenario ITSM chatbot test suite
+- `itsm-chatbot-scenarios.json`: Test scenario definitions
+
+### Fixed
+- Empty RAG placeholders (`{{context}}`, `{{alias}}`) survive as literal text in LLM prompt when no results found
+- Silent exception swallowing in `_resolve_rag()` — errors now properly propagated
+- `tsquery` special character sanitization (parentheses, colons, etc. stripped before PostgreSQL full-text search)
+
+### Changed
+- `_resolve_rag()` rewritten with `_hybrid_search()` combining BM25 + semantic results via RRF scoring
+- Form accuracy improved: 55% → 64%, hard difficulty pass rate: 33% → 67%
+
 ## [0.18.0] - 2026-02-19
 
 ### Added

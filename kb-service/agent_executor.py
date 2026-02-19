@@ -11,6 +11,7 @@ Supports:
 """
 
 import json
+import logging
 import time
 import uuid
 import httpx
@@ -21,12 +22,54 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import re
 
+logger = logging.getLogger("agent_executor")
+
 from tools import get_tool_schemas, get_tool_handler
 
 
 # Module-level compiled regex and reserved variable names
 _VARIABLE_PATTERN = re.compile(r'\{\{(\w+)\}\}')
 _RESERVED_VARS = {"context"}
+
+# Turkish synonym expansion for BM25 keyword search
+_TURKISH_SYNONYMS = {
+    "sifre": ["parola", "password", "sifirlama"],
+    "vpn": ["uzak erisim", "remote"],
+    "yazici": ["printer", "baski", "yazdirma"],
+    "laptop": ["dizustu", "notebook"],
+    "toner": ["kartus", "sarf malzeme"],
+    "phishing": ["oltalama", "sahte mail"],
+    "firewall": ["guvenlik duvari"],
+    "egitim": ["training", "farkindalik"],
+    "yedek": ["backup", "yedekleme"],
+    "kamera": ["webcam", "video konferans"],
+    "crm": ["musteri iliskileri"],
+    "offboarding": ["ayrilan calisan", "hesap kapatma"],
+    "onboarding": ["yeni calisan", "hesap acma"],
+    "mfa": ["iki faktor", "two factor", "dogrulama"],
+    "hesap": ["kullanici", "account"],
+    "erisim": ["access", "yetki", "izin"],
+    "mail": ["eposta", "e-posta", "outlook"],
+    "disk": ["depolama", "storage", "alan"],
+    "lisans": ["license", "yazilim"],
+}
+
+
+def _expand_query_with_synonyms(query_text: str) -> str:
+    """Expand a query string with Turkish synonyms for better BM25 recall."""
+    words = [w.strip().lower() for w in query_text.split() if len(w.strip()) >= 2]
+    expanded = list(words)
+    for word in words:
+        if word in _TURKISH_SYNONYMS:
+            for syn in _TURKISH_SYNONYMS[word]:
+                # Split multi-word synonyms into individual tokens
+                expanded.extend(syn.split())
+        # Also check if any synonym key contains the word
+        for key, syns in _TURKISH_SYNONYMS.items():
+            if key != word and word in key:
+                expanded.append(key)
+                expanded.extend(s for syn in syns for s in syn.split())
+    return " ".join(set(expanded))
 
 
 # SSE event helpers
@@ -108,6 +151,8 @@ class AgentExecutor:
         self.rag_threshold = config.get("ragThreshold", 0.3)
         self.rag_sources = config.get("ragSources", [])
         self.rag_source_aliases = config.get("ragSourceAliases", {})
+        self.rag_source_config = config.get("ragSourceConfig", {})
+        self.rag_debug = {}  # Populated during _resolve_rag for history
 
         # Per-instance reserved vars: "context" + all alias values
         self._rag_vars: set = set()
@@ -262,6 +307,113 @@ class AgentExecutor:
                     raise Exception(f"vLLM returned {resp.status_code}: {resp.text}")
                 return resp.json()
 
+    async def _check_tsvector_exists(self) -> bool:
+        """Check if search_vector column exists in kb_documents (for backward compat)."""
+        try:
+            result = await self.session.execute(sql_text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'kb_documents' AND column_name = 'search_vector' LIMIT 1"
+            ))
+            return result.fetchone() is not None
+        except Exception:
+            return False
+
+    async def _hybrid_search(
+        self,
+        embedding_str: str,
+        source_label: str,
+        threshold: float,
+        top_k: int,
+        query_text: str,
+        use_bm25: bool = True,
+    ) -> list:
+        """Hybrid: vector cosine + BM25 keyword, merged via Reciprocal Rank Fusion.
+
+        Falls back to pure semantic search if use_bm25=False or tsquery is empty.
+        """
+        # Build expanded keyword query
+        expanded = _expand_query_with_synonyms(query_text)
+        # Sanitize: only keep alphanumeric + Turkish chars, strip punctuation
+        sanitize_re = re.compile(r'[^a-zA-Z0-9çğıöşüÇĞİÖŞÜ]')
+        words = [sanitize_re.sub('', w).strip() for w in expanded.split()]
+        words = [w for w in words if len(w) >= 2]
+        # Deduplicate while preserving order
+        seen = set()
+        unique_words = []
+        for w in words:
+            wl = w.lower()
+            if wl not in seen:
+                seen.add(wl)
+                unique_words.append(wl)
+        ts_query_str = " | ".join(unique_words) if unique_words else ""
+
+        fetch_limit = top_k * 3  # Over-fetch for better RRF fusion
+
+        if use_bm25 and ts_query_str:
+            sql = sql_text("""
+                WITH semantic AS (
+                    SELECT id, text, source_label,
+                           1 - (embedding <=> CAST(:embedding AS vector)) AS similarity,
+                           ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:embedding AS vector)) AS sem_rank
+                    FROM kb_documents
+                    WHERE source_label = :source
+                      AND 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
+                    LIMIT :fetch_limit
+                ),
+                keyword AS (
+                    SELECT id, text, source_label,
+                           ts_rank(search_vector, to_tsquery('simple', :tsquery)) AS kw_score,
+                           ROW_NUMBER() OVER (ORDER BY ts_rank(search_vector, to_tsquery('simple', :tsquery)) DESC) AS kw_rank
+                    FROM kb_documents
+                    WHERE source_label = :source
+                      AND search_vector @@ to_tsquery('simple', :tsquery)
+                    LIMIT :fetch_limit
+                ),
+                combined AS (
+                    SELECT COALESCE(s.id, k.id) AS id,
+                           COALESCE(s.text, k.text) AS text,
+                           COALESCE(s.source_label, k.source_label) AS source_label,
+                           COALESCE(s.similarity, 0) AS similarity,
+                           COALESCE(k.kw_score, 0) AS kw_score,
+                           COALESCE(1.0/(60 + s.sem_rank), 0) + COALESCE(1.0/(60 + k.kw_rank), 0) AS rrf_score
+                    FROM semantic s FULL OUTER JOIN keyword k ON s.id = k.id
+                )
+                SELECT text, source_label, similarity, kw_score, rrf_score
+                FROM combined ORDER BY rrf_score DESC LIMIT :top_k
+            """)
+            params = {
+                "embedding": embedding_str,
+                "source": source_label,
+                "threshold": threshold,
+                "tsquery": ts_query_str,
+                "fetch_limit": fetch_limit,
+                "top_k": top_k,
+            }
+        else:
+            # Pure semantic fallback
+            source_filter = "AND source_label = :source" if source_label else ""
+            sql = sql_text(f"""
+                SELECT text, source_label,
+                       1 - (embedding <=> CAST(:embedding AS vector)) AS similarity,
+                       0.0 AS kw_score,
+                       0.0 AS rrf_score
+                FROM kb_documents
+                WHERE 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
+                {source_filter}
+                ORDER BY similarity DESC
+                LIMIT :top_k
+            """)
+            params = {
+                "embedding": embedding_str,
+                "threshold": threshold,
+                "top_k": top_k,
+            }
+            if source_label:
+                params["source"] = source_label
+
+        result = await self.session.execute(sql, params)
+        return result.fetchall()
+
     async def _resolve_rag(self, resolved_prompt: str, resolved_system: str, variables: dict | None = None) -> tuple[str, str, int]:
         """Apply RAG context injection if enabled. Returns (prompt, system, context_count).
 
@@ -295,112 +447,89 @@ class AgentExecutor:
 
             embedding_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
 
-            # Per-source quota: when multiple sources are provided, fetch from each source
-            # with a guaranteed minimum slot allocation per source.
-            #
-            # Strategy:
-            #  - Primary source (KB articles): fills the bulk of the context
-            #  - Secondary sources (form templates etc.): always get SECONDARY_QUOTA
-            #    dedicated slots regardless of their similarity scores, so the correct
-            #    form template is never pushed out by high-sim KB articles.
-            per_source_rows: dict = {}  # source_label → rows
-            if len(self.rag_sources) > 1:
-                SECONDARY_QUOTA = 3   # guaranteed slots per secondary source
-                n_secondary = len(self.rag_sources) - 1
-                primary_k = max(1, self.rag_top_k - SECONDARY_QUOTA * n_secondary)
-                secondary_threshold = max(0.15, self.rag_threshold - 0.15)
+            # Check if hybrid search (BM25) is available
+            has_tsvector = await self._check_tsvector_exists()
 
-                seen_texts: set = set()
-                primary_rows = []
-                secondary_rows: list = []   # list of list, one per secondary source
+            # Per-source hybrid search with configurable quotas via ragSourceConfig
+            #
+            # Each source gets independent topK and threshold from ragSourceConfig.
+            # Default: primary source gets bulk of slots, secondary sources get 3 each.
+            # Hybrid search (vector + BM25 keyword) is used when tsvector column exists.
+            per_source_rows: dict = {}  # source_label → rows
+            seen_texts: set = set()
+            search_rows = []
+
+            if self.rag_sources:
+                n_sources = len(self.rag_sources)
+                n_secondary = max(0, n_sources - 1)
+                default_secondary_k = 3
+                default_primary_k = max(1, self.rag_top_k - default_secondary_k * n_secondary)
 
                 for src_idx, source in enumerate(self.rag_sources):
+                    src_cfg = self.rag_source_config.get(source, {})
                     if src_idx == 0:
-                        # Primary: fetch primary_k results at normal threshold
-                        src_params = {
-                            "embedding": embedding_str,
-                            "threshold": self.rag_threshold,
-                            "top_k": primary_k,
-                            "src_0": source,
-                        }
-                        src_query = """
-                            SELECT text, source_label,
-                                   1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
-                            FROM kb_documents
-                            WHERE 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
-                              AND source_label = :src_0
-                            ORDER BY similarity DESC
-                            LIMIT :top_k
-                        """
-                        src_result = await self.session.execute(sql_text(src_query), src_params)
-                        for row in src_result.fetchall():
-                            key = row.text[:80]
-                            if key not in seen_texts:
-                                seen_texts.add(key)
-                                primary_rows.append(row)
-                        per_source_rows[source] = primary_rows
+                        src_top_k = src_cfg.get("topK", default_primary_k)
                     else:
-                        # Secondary: fetch SECONDARY_QUOTA results at lower threshold
-                        src_params = {
-                            "embedding": embedding_str,
-                            "threshold": secondary_threshold,
-                            "top_k": SECONDARY_QUOTA,
-                            "src_0": source,
-                        }
-                        src_query = """
-                            SELECT text, source_label,
-                                   1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
-                            FROM kb_documents
-                            WHERE 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
-                              AND source_label = :src_0
-                            ORDER BY similarity DESC
-                            LIMIT :top_k
-                        """
-                        src_result = await self.session.execute(sql_text(src_query), src_params)
-                        sec_rows = []
-                        for row in src_result.fetchall():
-                            key = row.text[:80]
-                            if key not in seen_texts:
-                                seen_texts.add(key)
-                                sec_rows.append(row)
-                        per_source_rows[source] = sec_rows
-                        secondary_rows.append(sec_rows)
+                        src_top_k = src_cfg.get("topK", default_secondary_k)
+                    src_threshold = src_cfg.get("threshold", self.rag_threshold if src_idx == 0 else max(0.15, self.rag_threshold - 0.15))
 
-                # Combine: KB results first (sorted by sim), then secondary sources
-                search_rows = primary_rows
-                for sec in secondary_rows:
-                    search_rows = search_rows + sec
+                    try:
+                        rows = await self._hybrid_search(
+                            embedding_str, source, src_threshold, src_top_k,
+                            rag_query, use_bm25=has_tsvector,
+                        )
+                    except Exception as src_err:
+                        logger.warning("Hybrid search failed for source=%s, falling back to semantic: %s", source, src_err)
+                        try:
+                            await self.session.rollback()
+                        except Exception:
+                            pass
+                        # Fallback to pure semantic for this source
+                        try:
+                            rows = await self._hybrid_search(
+                                embedding_str, source, src_threshold, src_top_k,
+                                rag_query, use_bm25=False,
+                            )
+                        except Exception:
+                            rows = []
+
+                    # Dedup across sources
+                    deduped = []
+                    for row in rows:
+                        key = row.text[:80]
+                        if key not in seen_texts:
+                            seen_texts.add(key)
+                            deduped.append(row)
+                    per_source_rows[source] = deduped
+
+                    # Capture debug info for this source
+                    self.rag_debug[source] = {
+                        "count": len(deduped),
+                        "top_k": src_top_k,
+                        "threshold": src_threshold,
+                        "hybrid": has_tsvector,
+                        "top_results": [
+                            {
+                                "text_preview": r.text[:100],
+                                "similarity": round(float(r.similarity), 4),
+                                "kw_score": round(float(getattr(r, 'kw_score', 0)), 4),
+                                "rrf_score": round(float(getattr(r, 'rrf_score', 0)), 4),
+                            }
+                            for r in deduped[:5]
+                        ],
+                    }
+
+                    search_rows.extend(deduped)
+
                 # Final cap at rag_top_k
                 search_rows = search_rows[:self.rag_top_k]
-
             else:
-                # Single source — original single-query path
-                search_params = {
-                    "embedding": embedding_str,
-                    "threshold": self.rag_threshold,
-                    "top_k": self.rag_top_k,
-                }
-                conditions = []
-                if self.rag_sources:
-                    src_placeholders = ", ".join(f":src_{i}" for i in range(len(self.rag_sources)))
-                    conditions.append(f"source_label IN ({src_placeholders})")
-                    for i, src in enumerate(self.rag_sources):
-                        search_params[f"src_{i}"] = src
-
-                where_clause = "AND " + " AND ".join(conditions) if conditions else ""
-                search_query = f"""
-                    SELECT text, source_label,
-                           1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
-                    FROM kb_documents
-                    WHERE 1 - (embedding <=> CAST(:embedding AS vector)) >= :threshold
-                    {where_clause}
-                    ORDER BY similarity DESC
-                    LIMIT :top_k
-                """
-                search_result = await self.session.execute(sql_text(search_query), search_params)
-                search_rows = search_result.fetchall()
-                if self.rag_sources:
-                    per_source_rows[self.rag_sources[0]] = list(search_rows)
+                # No sources configured — use threshold-only search
+                rows = await self._hybrid_search(
+                    embedding_str, "", self.rag_threshold, self.rag_top_k,
+                    rag_query, use_bm25=False,
+                )
+                search_rows = list(rows)
 
             if search_rows:
                 count = len(search_rows)
@@ -434,9 +563,31 @@ class AgentExecutor:
                     resolved_system += f"\n\n[Retrieved Context]\n{context_text}"
 
                 return resolved_prompt, resolved_system, count
+            else:
+                # No results — clean up all RAG placeholders
+                for source in self.rag_sources:
+                    alias = self.rag_source_aliases.get(source) or self._source_to_var(source)
+                    placeholder = "{{" + alias + "}}"
+                    resolved_prompt = resolved_prompt.replace(placeholder, "")
+                    resolved_system = resolved_system.replace(placeholder, "")
+                resolved_prompt = resolved_prompt.replace("{{context}}", "")
+                resolved_system = resolved_system.replace("{{context}}", "")
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("RAG failed for agent=%s: %s", self.agent_name, e, exc_info=True)
+            # Rollback failed transaction so session stays usable
+            try:
+                await self.session.rollback()
+            except Exception:
+                pass
+            # Clean up placeholders on error too
+            for source in self.rag_sources:
+                alias = self.rag_source_aliases.get(source) or self._source_to_var(source)
+                placeholder = "{{" + alias + "}}"
+                resolved_prompt = resolved_prompt.replace(placeholder, "")
+                resolved_system = resolved_system.replace(placeholder, "")
+            resolved_prompt = resolved_prompt.replace("{{context}}", "")
+            resolved_system = resolved_system.replace("{{context}}", "")
 
         return resolved_prompt, resolved_system, 0
 
@@ -709,6 +860,8 @@ class AgentExecutor:
                 "threshold": self.rag_threshold,
                 "sources": self.rag_sources,
             }
+            if self.rag_debug:
+                req_payload["rag_debug"] = self.rag_debug
 
         if self.workflow_id:
             req_payload["workflow"] = {
