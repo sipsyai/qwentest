@@ -121,6 +121,26 @@ export const ENDPOINTS: EndpointDef[] = [
     outputKey: 'data',
   },
   {
+    id: 'kb-documents-update',
+    method: 'PUT',
+    path: '/api/kb/documents/{doc_id}',
+    summary: 'Update a document',
+    description: 'Partially update a KB document. Supports updating text (embedding required when text changes), source, and source_label fields.',
+    category: 'documents',
+    tags: ['kb', 'documents', 'update', 'put'],
+    responseType: 'json',
+    params: [
+      { name: 'doc_id', location: 'path', type: 'string', required: true, description: 'Document UUID' },
+      { name: 'text', location: 'body', type: 'string', required: false, description: 'New text content (requires embedding if changed)' },
+      { name: 'embedding', location: 'body', type: 'array', required: false, description: 'New embedding vector — required when text is updated' },
+      { name: 'source', location: 'body', type: 'string', required: false, description: 'New source type' },
+      { name: 'source_label', location: 'body', type: 'string', required: false, description: 'New source label' },
+    ],
+    exampleRequest: { text: 'Updated document text', embedding: [0.01, 0.02, 0.03], source: 'manual', source_label: 'ITSM KB' },
+    exampleResponse: { id: 'uuid', text: 'Updated document text', source: 'manual', source_label: 'ITSM KB', created_at: '2025-01-01T00:00:00' },
+    aiNotes: 'Embedding is mandatory when text changes (otherwise 400). To update only source/source_label without changing text, embedding can be omitted. Returns 409 on duplicate text.',
+  },
+  {
     id: 'kb-documents-delete',
     method: 'DELETE',
     path: '/api/kb/documents/{doc_id}',
@@ -701,9 +721,29 @@ export const ENDPOINTS: EndpointDef[] = [
     params: [
       { name: 'name', location: 'body', type: 'string', required: true, description: 'Workflow name' },
       { name: 'description', location: 'body', type: 'string', required: false, description: 'Workflow description' },
-      { name: 'steps', location: 'body', type: 'array', required: false, description: 'Pipeline step definitions' },
+      { name: 'steps', location: 'body', type: 'array', required: false, description: 'Pipeline step definitions. Each step: { id, agentId, agentName, variableMappings, condition?, defaultOutput? }' },
+      { name: 'steps[].condition', location: 'body', type: 'object', required: false, description: 'Optional condition: { source: "{{step:id.field}}", operator: "in"|"not_in"|"eq"|"ne"|"contains"|"empty"|"not_empty", values: string[] }' },
+      { name: 'steps[].defaultOutput', location: 'body', type: 'string', required: false, description: 'Output to use when this step is skipped (condition evaluated to false)' },
     ],
-    exampleRequest: { name: 'My Pipeline', description: 'Test workflow', steps: [{ id: 'step_0', agentId: 'agent-uuid', variableMappings: {} }] },
+    exampleRequest: {
+      name: 'ITSM Pipeline',
+      description: '3-step ITSM flow with conditional execution',
+      steps: [
+        { id: 'step_intent', agentId: 'agent-uuid-1', agentName: 'Intent Classifier', variableMappings: { mesaj: '{{input:soru}}' } },
+        {
+          id: 'step_kb', agentId: 'agent-uuid-2', agentName: 'KB Search',
+          variableMappings: { soru: '{{input:soru}}' },
+          condition: { source: '{{step:step_intent.intent}}', operator: 'in', values: ['COZUM_ISTE', 'FORM_AC'] },
+          defaultOutput: 'KB araması yapılmadı.',
+        },
+        {
+          id: 'step_yanit', agentId: 'agent-uuid-3', agentName: 'Response Generator',
+          variableMappings: { soru: '{{input:soru}}', intent: '{{step:step_intent.intent}}', context: '{{step:step_kb}}' },
+          condition: { source: '{{step:step_intent.intent}}', operator: 'in', values: ['COZUM_ISTE', 'FORM_AC'] },
+          defaultOutput: 'Merhaba! Size nasıl yardımcı olabilirim?',
+        },
+      ],
+    },
     exampleResponse: { id: 'uuid', name: 'My Pipeline', description: 'Test workflow', steps: [], created_at: '2026-01-01T00:00:00', updated_at: '2026-01-01T00:00:00' },
   },
   {
@@ -765,16 +805,21 @@ export const ENDPOINTS: EndpointDef[] = [
       { name: 'wf_id', location: 'path', type: 'string', required: true, description: 'Workflow UUID' },
       { name: 'variables', location: 'body', type: 'object', required: false, description: 'Runtime input variables for {{input:key}} mappings', example: { query: 'test input' } },
     ],
-    exampleRequest: { variables: { query: 'How to reset password?' } },
+    exampleRequest: { variables: { soru: 'Yazıcım bozuldu, yardım eder misiniz?' } },
     sseEvents: [
-      { event: 'step_start', description: 'Pipeline step started', dataShape: '{ step_id, index, agent_name, agent_id }' },
-      { event: 'step_stream', description: 'Step streaming content', dataShape: '{ step_id, index, content }' },
-      { event: 'step_done', description: 'Step completed', dataShape: '{ step_id, index, output_preview, output_length }' },
-      { event: 'step_error', description: 'Step failed', dataShape: '{ step_id, index, error }' },
+      { event: 'step_start', description: 'Pipeline step started (agent is executing)', dataShape: '{ step_id, index, agent_name, agent_id }' },
+      { event: 'step_stream', description: 'Step streaming content chunk', dataShape: '{ step_id, index, content }' },
+      { event: 'step_done', description: 'Step completed successfully', dataShape: '{ step_id, index, output_preview, output_length }' },
+      { event: 'step_error', description: 'Step failed with error', dataShape: '{ step_id, index, error }' },
+      { event: 'step_skip', description: 'Step skipped (condition evaluated to false) — defaultOutput stored as output', dataShape: '{ step_id, index, default_output }' },
+      { event: 'step_tool_call', description: 'ReAct step calling a tool', dataShape: '{ step_id, step_index, tool, args, call_id }' },
+      { event: 'step_tool_result', description: 'ReAct step tool returned result', dataShape: '{ step_id, step_index, tool, call_id, result }' },
       { event: 'workflow_done', description: 'All steps completed', dataShape: '{ total_steps, step_outputs }' },
     ],
     outputKey: 'step_outputs',
-    aiNotes: 'Variable mappings: "{{prev_output}}" pipes previous step output, "{{step:step_id}}" references specific step, "{{input:key}}" uses runtime variables.',
+    aiNotes: `Variable mappings: "{{prev_output}}" pipes previous step output, "{{step:step_id}}" references specific step by ID, "{{step:step_id.field}}" extracts a JSON field from a step's output (e.g. "{{step:step_intent.intent}}" parses the JSON and returns the "intent" key), "{{input:key}}" uses runtime variables.
+
+Conditional execution: add a "condition" object to a step — { source: "{{step:step_id.field}}", operator: "in"/"not_in"/"eq"/"ne"/"contains"/"empty"/"not_empty", values: ["VAL1","VAL2"] }. If the condition evaluates to false, the step is skipped and emits step_skip with the step's defaultOutput. Skipped steps still populate step_outputs so downstream steps can reference them via {{step:id}}.`,
   },
 
   // ==================== Chat Completions (vLLM) ====================

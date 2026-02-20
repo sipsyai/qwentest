@@ -4,6 +4,12 @@ const KB_BASE = '/api/kb';
 
 // --- Interfaces ---
 
+export interface StepCondition {
+  source: string;       // e.g. "{{step:step_intent.intent}}"
+  operator: 'in' | 'not_in' | 'eq' | 'ne' | 'contains' | 'empty' | 'not_empty';
+  values: string[];     // comparison values (empty for 'empty'/'not_empty')
+}
+
 export interface WorkflowStep {
   id: string;
   agentId: string;
@@ -12,8 +18,11 @@ export interface WorkflowStep {
    *  - literal string: used as-is
    *  - "{{prev_output}}": output of previous step
    *  - "{{step:step_id}}": output of a specific step by ID
+   *  - "{{step:step_id.field}}": JSON field from a specific step's output
    */
   variableMappings: Record<string, string>;
+  condition?: StepCondition;     // FR-1: conditional execution
+  defaultOutput?: string;        // FR-4: output to use when step is skipped
 }
 
 export interface Workflow {
@@ -83,6 +92,7 @@ export interface WorkflowRunCallbacks {
   onStepStream?: (data: { step_id: string; index: number; content: string }) => void;
   onStepDone?: (data: { step_id: string; index: number; output_preview: string; output_length: number }) => void;
   onStepError?: (data: { step_id: string; index: number; error: string }) => void;
+  onStepSkip?: (data: { step_id: string; index: number; default_output: string }) => void;
   // Agentic sub-events within a step
   onStepToolCall?: (data: { step_id: string; step_index: number; tool: string; args: any; call_id: string }) => void;
   onStepToolResult?: (data: { step_id: string; step_index: number; tool: string; result: string }) => void;
@@ -159,6 +169,9 @@ export async function runWorkflow(
                 break;
               case 'step_error':
                 callbacks.onStepError?.(parsed);
+                break;
+              case 'step_skip':
+                callbacks.onStepSkip?.(parsed);
                 break;
               case 'step_tool_call':
                 callbacks.onStepToolCall?.(parsed);

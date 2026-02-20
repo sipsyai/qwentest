@@ -3,6 +3,26 @@
 Tum onemli degisiklikler bu dosyada belgelenir.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
+## [0.22.0] - 2026-02-20
+
+### Added
+- FR-1: Conditional step execution — `condition` field on WorkflowStep (`in`/`not_in`/`eq`/`ne`/`contains`/`empty`/`not_empty` operators)
+- FR-2: Dot-notation variable resolution — `{{step:step_id.fieldName}}` extracts JSON field from step output
+- FR-4: `defaultOutput` field — skipped step's value available to downstream steps via `{{step:id}}`
+- `step_skip` SSE event from workflow run endpoint: `{ step_id, index, default_output }`
+- Backend utilities: `_extract_json_field()`, `_resolve_step_ref()`, `_evaluate_condition()` (kb-service/main.py)
+- `StepCondition` interface in workflowApi.ts
+- Condition UI in Pipeline Builder: toggle checkbox, source/field/operator/values inputs, defaultOutput textarea
+- `skipped` step state: grey badge with ArrowRight icon + "SKIPPED" chip + `step_skip` SSE handler
+- API Explorer: `PUT /api/kb/documents/{doc_id}` endpoint added (was missing from catalog)
+- API Explorer: `step_skip` event, `step_tool_call/result` events, dot-notation + condition docs in workflows-run
+
+### Changed
+- WorkflowStep type extended with `condition?` and `defaultOutput?` optional fields
+- Variable mapping row: `.field (optional)` input shown when a `{{step:id}}` source is selected
+- `workflows-run` example request updated to realistic ITSM pipeline scenario
+- `workflows-create` params updated to document step condition/defaultOutput fields
+
 ## [0.21.0] - 2026-02-19
 
 ### Added

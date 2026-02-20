@@ -30,7 +30,7 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **agentsApi.ts**: Agents CRUD client, extractVariables(template, ragAliasValues?) utility, runAgent() SSE stream client, runAgentAgentic() ReAct runner
 - **rag.ts**: RAG pipeline (embed query → pgvector search → context injection, `{{context}}` template variable support)
 - **markdown.ts**: Think tag parser + markdown renderer
-- **apiCatalog.ts**: API endpoint catalog (35 endpoints, 11 categories, params, example request/response, SSE events, tags)
+- **apiCatalog.ts**: API endpoint catalog (36 endpoints, 11 categories, params, example request/response, SSE events, tags)
 - **mockData.ts**: Test/demo verileri
 
 ## Sayfalar
@@ -41,9 +41,9 @@ vLLM uzerinde calisan Qwen3-4B ve Nomic Embed modelleri icin React tabanli AI ar
 - **Datasets**: Generic REST API connector, manual JSON paste (no API needed), JSON drill-down explorer, array→tablo gorunum, save selected, field extraction config (array_path + extract_fields), extract & save all, manual fetch
 - **DatasetRecords**: Kaydedilen dataset kayitlari (/dataset-records), filter, search, tablo gorunumu (otomatik kolon turetme), embed pipeline (tag-based field selection, batch embed with progress, embed status tracking)
 - **Agents**: Saved agent cards with Run/Edit/Delete, direct execution via streaming Run modal (variable inputs, markdown output, think tags, copy/stop), promptTemplate preview + variable badges
-- **Workflows**: Pipeline Builder tab (chain agents, variable mappings, step execution) + Agent Runner tab (3-panel: agent list, workspace, tool registry/config — supports simple + ReAct agents)
+- **Workflows**: Pipeline Builder tab (chain agents, variable mappings, step execution, conditional step execution with condition toggle+form, dot-notation `{{step:id.field}}` resolution, defaultOutput for skipped steps, skipped state badge) + Agent Runner tab (3-panel: agent list, workspace, tool registry/config — supports simple + ReAct agents)
 - **History**: Istek gecmisi goruntuleme, expand/collapse detail panel (request payload: messages + params + RAG config, response payload: full text), workflow history tracking (source filter: standalone/workflow, workflow badge, workflow context panel in detail view)
-- **ApiExplorer**: Interactive API endpoint tester — 35 endpoints, 11 categories, request builder, JSON syntax coloring, SSE stream support, URL param routing (`/api-explorer/:endpointId`)
+- **ApiExplorer**: Interactive API endpoint tester — 36 endpoints, 11 categories, request builder, JSON syntax coloring, SSE stream support, URL param routing (`/api-explorer/:endpointId`)
 - **Settings**: API URL, model, parametre ayarlari, fallback URL konfigurasyonu
 
 ## Dev Ortami

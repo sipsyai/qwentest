@@ -1034,6 +1034,47 @@ async def delete_workflow(wf_id: str, session: AsyncSession = Depends(get_sessio
     return MessageResponse(message="Workflow deleted")
 
 
+def _extract_json_field(raw_text: str, dotpath: str) -> str:
+    """Parse JSON text and extract field via dot-notation (e.g. 'intent' or 'result.meta.confidence')."""
+    try:
+        obj = json.loads(raw_text)
+        for key in dotpath.split("."):
+            obj = obj[key]
+        return str(obj)
+    except Exception:
+        return raw_text  # fallback: return raw if parse fails
+
+
+def _resolve_step_ref(ref: str, step_outputs: dict, input_vars: dict) -> str:
+    """Resolve a reference like '{{step:step_intent.intent}}' or '{{input:key}}'.
+    Used by both variable resolution AND condition evaluation."""
+    if ref.startswith("{{step:") and ref.endswith("}}"):
+        inner = ref[7:-2]           # e.g. "step_intent.intent"
+        parts = inner.split(".", 1)
+        raw = step_outputs.get(parts[0], "")
+        return _extract_json_field(raw, parts[1]) if len(parts) == 2 else raw
+    elif ref.startswith("{{input:") and ref.endswith("}}"):
+        key = ref[8:-2]
+        return input_vars.get(key, "")
+    return ref  # literal
+
+
+def _evaluate_condition(condition: dict, step_outputs: dict, input_vars: dict) -> bool:
+    """Evaluate a structured condition dict. Returns True = run step, False = skip."""
+    source_ref = condition.get("source", "")
+    value = _resolve_step_ref(source_ref, step_outputs, input_vars)
+    operator = condition.get("operator", "eq")
+    values = condition.get("values", [])
+    if operator == "in":        return value in values
+    if operator == "not_in":   return value not in values
+    if operator == "eq":       return value == (values[0] if values else "")
+    if operator == "ne":       return value != (values[0] if values else "")
+    if operator == "contains": return any(v in value for v in values)
+    if operator == "empty":    return not bool(value.strip())
+    if operator == "not_empty": return bool(value.strip())
+    return True  # unknown operator = always run
+
+
 @app.post("/api/kb/workflows/{wf_id}/run")
 async def run_workflow(
     wf_id: str,
@@ -1086,6 +1127,17 @@ async def run_workflow(
                 yield f"event: step_error\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'error': 'No agent configured'})}\n\n"
                 continue
 
+            # FR-1: Conditional step execution
+            condition = step.get("condition")
+            if condition:
+                should_run = _evaluate_condition(condition, step_outputs, req.variables)
+                if not should_run:
+                    default_out = step.get("defaultOutput", "")
+                    step_outputs[step_id] = default_out
+                    prev_output = default_out
+                    yield f"event: step_skip\ndata: {json.dumps({'step_id': step_id, 'index': idx, 'default_output': default_out})}\n\n"
+                    continue
+
             # Load agent
             agent_result = await session.execute(
                 text("SELECT id, name, config FROM saved_agents WHERE id = :id"),
@@ -1106,9 +1158,8 @@ async def run_workflow(
                 if mapping == "{{prev_output}}":
                     resolved_vars[var_name] = prev_output
                 elif mapping.startswith("{{step:") and mapping.endswith("}}"):
-                    # {{step:step_id}} -> output of a specific step
-                    ref_id = mapping[7:-2]
-                    resolved_vars[var_name] = step_outputs.get(ref_id, "")
+                    # {{step:step_id}} or {{step:step_id.field}} -> output of a specific step
+                    resolved_vars[var_name] = _resolve_step_ref(mapping, step_outputs, req.variables)
                 elif mapping.startswith("{{input:") and mapping.endswith("}}"):
                     # {{input:key}} -> runtime user-supplied variable
                     var_key = mapping[8:-2]

@@ -47,6 +47,7 @@ import {
   runWorkflow,
   Workflow,
   WorkflowStep,
+  StepCondition,
   WorkflowRunCallbacks,
 } from '../services/workflowApi';
 import { parseThinkTags, renderMarkdownToHTML } from '../services/markdown';
@@ -252,7 +253,7 @@ const Workflows = () => {
   // ── Pipeline run ──────────────────────────────────────────────────────────
   const [pipeRunning, setPipeRunning] = useState(false);
   const [pipeStepStates, setPipeStepStates] = useState<
-    Record<string, 'pending' | 'running' | 'done' | 'error'>
+    Record<string, 'pending' | 'running' | 'done' | 'error' | 'skipped'>
   >({});
   const [pipeStepOutputs, setPipeStepOutputs] = useState<Record<string, string>>({});
   const [pipeStepErrors, setPipeStepErrors] = useState<Record<string, string>>({});
@@ -491,6 +492,10 @@ const Workflows = () => {
       onStepError: (data) => {
         setPipeStepStates((prev) => ({ ...prev, [data.step_id]: 'error' }));
         setPipeStepErrors((prev) => ({ ...prev, [data.step_id]: data.error }));
+      },
+      onStepSkip: (data) => {
+        setPipeStepStates((prev) => ({ ...prev, [data.step_id]: 'skipped' }));
+        setPipeStepOutputs((prev) => ({ ...prev, [data.step_id]: data.default_output }));
       },
       onStepToolCall: (data) => {
         setPipeToolCalls((prev) => ({
@@ -929,6 +934,8 @@ const Workflows = () => {
                                   ? 'border-emerald-500/30 bg-emerald-900/5'
                                   : stepState === 'error'
                                   ? 'border-red-500/30 bg-red-900/5'
+                                  : stepState === 'skipped'
+                                  ? 'border-slate-600/40 bg-slate-900/20 opacity-70'
                                   : 'border-slate-700/60 bg-slate-900/30'
                               }`}
                             >
@@ -958,6 +965,8 @@ const Workflows = () => {
                                       ? 'bg-emerald-600 text-white'
                                       : stepState === 'error'
                                       ? 'bg-red-600 text-white'
+                                      : stepState === 'skipped'
+                                      ? 'bg-slate-700 text-slate-400'
                                       : 'bg-slate-800 text-slate-400 border border-slate-700'
                                   }`}
                                 >
@@ -967,6 +976,8 @@ const Workflows = () => {
                                     <CheckCircle2 size={14} />
                                   ) : stepState === 'error' ? (
                                     <AlertCircle size={14} />
+                                  ) : stepState === 'skipped' ? (
+                                    <ArrowRight size={14} />
                                   ) : (
                                     idx + 1
                                   )}
@@ -992,6 +1003,11 @@ const Workflows = () => {
                                     AGENTIC
                                   </span>
                                 )}
+                                {stepState === 'skipped' && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-400 border border-slate-600/50 font-medium shrink-0">
+                                    SKIPPED
+                                  </span>
+                                )}
                                 <button
                                   onClick={() => removeStep(idx)}
                                   disabled={pipeRunning}
@@ -1009,20 +1025,35 @@ const Workflows = () => {
                                   </p>
                                   {variables.map((v) => {
                                     const currentVal = step.variableMappings[v.name] || '';
+                                    // FR-2: detect {{step:id.field}} dot-notation
+                                    const isStepRefWithField =
+                                      currentVal.startsWith('{{step:') &&
+                                      currentVal.endsWith('}}') &&
+                                      currentVal.slice(7, -2).includes('.');
+                                    let baseRef = currentVal;
+                                    let fieldName = '';
+                                    if (isStepRefWithField) {
+                                      const inner = currentVal.slice(7, -2);
+                                      const dotIdx = inner.indexOf('.');
+                                      baseRef = `{{step:${inner.slice(0, dotIdx)}}}`;
+                                      fieldName = inner.slice(dotIdx + 1);
+                                    }
                                     const sources = getSourceOptions(idx, v.name);
                                     const isRef =
                                       currentVal.startsWith('{{prev_output}}') ||
                                       currentVal.startsWith('{{step:') ||
                                       currentVal.startsWith('{{input:');
-                                    const matchingSource = sources.find((s) => s.value === currentVal);
+                                    const matchingSource = sources.find((s) => s.value === baseRef);
+                                    const isStepSource =
+                                      baseRef.startsWith('{{step:') && !!matchingSource;
                                     return (
-                                      <div key={v.name} className="flex items-center gap-2">
+                                      <div key={v.name} className="flex items-center gap-2 flex-wrap">
                                         <span className="text-[11px] text-slate-400 font-mono w-28 shrink-0 truncate">
                                           {'{{'}{v.name}{'}}'}
                                         </span>
                                         <span className="text-slate-600 text-[10px]">&larr;</span>
                                         <select
-                                          value={matchingSource ? matchingSource.value : '__custom__'}
+                                          value={matchingSource ? matchingSource.value : (isRef ? '__custom__' : '__custom__')}
                                           onChange={(e) => {
                                             if (e.target.value === '__custom__') updateMapping(idx, v.name, '');
                                             else updateMapping(idx, v.name, e.target.value);
@@ -1034,6 +1065,21 @@ const Workflows = () => {
                                             <option key={s.value} value={s.value}>{s.label}</option>
                                           ))}
                                         </select>
+                                        {/* FR-2: JSON field input for {{step:id.field}} */}
+                                        {isStepSource && (
+                                          <input
+                                            type="text"
+                                            value={fieldName}
+                                            onChange={(e) => {
+                                              const f = e.target.value;
+                                              const base = baseRef.slice(0, -2); // strip "}}"
+                                              updateMapping(idx, v.name, f ? `${base}.${f}}}` : baseRef);
+                                            }}
+                                            placeholder=".field (optional)"
+                                            disabled={pipeRunning}
+                                            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-300 outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 w-32 font-mono"
+                                          />
+                                        )}
                                         {!isRef && !matchingSource && (
                                           <input
                                             type="text"
@@ -1047,6 +1093,164 @@ const Workflows = () => {
                                       </div>
                                     );
                                   })}
+                                </div>
+                              )}
+
+                              {/* FR-1: Condition Section */}
+                              {agent && (
+                                <div className="px-4 pb-3 space-y-2 border-t border-slate-800/50 pt-3 mx-3">
+                                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!step.condition}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          updateStep(idx, {
+                                            condition: { source: '', operator: 'in', values: [] },
+                                          });
+                                        } else {
+                                          updateStep(idx, { condition: undefined });
+                                        }
+                                      }}
+                                      disabled={pipeRunning}
+                                      className="w-3 h-3 rounded accent-emerald-500 disabled:opacity-50"
+                                    />
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                      Conditional Execution
+                                    </span>
+                                  </label>
+                                  {step.condition && (() => {
+                                    const cond = step.condition;
+                                    // Parse condition source for dot-notation
+                                    const src = cond.source || '';
+                                    const isSrcStepWithField =
+                                      src.startsWith('{{step:') && src.endsWith('}}') && src.slice(7, -2).includes('.');
+                                    let srcBase = src;
+                                    let srcField = '';
+                                    if (isSrcStepWithField) {
+                                      const inner = src.slice(7, -2);
+                                      const di = inner.indexOf('.');
+                                      srcBase = `{{step:${inner.slice(0, di)}}}`;
+                                      srcField = inner.slice(di + 1);
+                                    }
+                                    const condSources: { label: string; value: string }[] = [];
+                                    for (let i = 0; i < idx; i++) {
+                                      const s = editSteps[i];
+                                      condSources.push({
+                                        label: `Step ${i + 1}: ${s.agentName || `Step ${i + 1}`}`,
+                                        value: `{{step:${s.id}}}`,
+                                      });
+                                    }
+                                    const matchingSrc = condSources.find((s) => s.value === srcBase);
+                                    const needsValues = !['empty', 'not_empty'].includes(cond.operator);
+                                    return (
+                                      <div className="pl-5 space-y-2">
+                                        {/* Source */}
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10px] text-slate-500 w-14 shrink-0">Source</span>
+                                          <select
+                                            value={matchingSrc ? matchingSrc.value : ''}
+                                            onChange={(e) => {
+                                              const newSrc = e.target.value;
+                                              updateStep(idx, {
+                                                condition: { ...cond, source: newSrc },
+                                              });
+                                            }}
+                                            disabled={pipeRunning}
+                                            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-white outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50 flex-1 min-w-0"
+                                          >
+                                            <option value="">Select step output...</option>
+                                            {condSources.map((s) => (
+                                              <option key={s.value} value={s.value}>{s.label}</option>
+                                            ))}
+                                          </select>
+                                          {/* field input */}
+                                          {matchingSrc && (
+                                            <input
+                                              type="text"
+                                              value={srcField}
+                                              onChange={(e) => {
+                                                const f = e.target.value;
+                                                const base = srcBase.slice(0, -2);
+                                                updateStep(idx, {
+                                                  condition: {
+                                                    ...cond,
+                                                    source: f ? `${base}.${f}}}` : srcBase,
+                                                  },
+                                                });
+                                              }}
+                                              placeholder=".field"
+                                              disabled={pipeRunning}
+                                              className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-300 outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50 w-24 font-mono"
+                                            />
+                                          )}
+                                        </div>
+                                        {/* Operator */}
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10px] text-slate-500 w-14 shrink-0">Operator</span>
+                                          <select
+                                            value={cond.operator}
+                                            onChange={(e) =>
+                                              updateStep(idx, {
+                                                condition: {
+                                                  ...cond,
+                                                  operator: e.target.value as StepCondition['operator'],
+                                                },
+                                              })
+                                            }
+                                            disabled={pipeRunning}
+                                            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-white outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50 flex-1 min-w-0"
+                                          >
+                                            <option value="in">is one of</option>
+                                            <option value="not_in">is not one of</option>
+                                            <option value="eq">equals</option>
+                                            <option value="ne">not equals</option>
+                                            <option value="contains">contains</option>
+                                            <option value="empty">is empty</option>
+                                            <option value="not_empty">is not empty</option>
+                                          </select>
+                                        </div>
+                                        {/* Values */}
+                                        {needsValues && (
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-slate-500 w-14 shrink-0">Values</span>
+                                            <input
+                                              type="text"
+                                              value={cond.values.join(', ')}
+                                              onChange={(e) => {
+                                                const vals = e.target.value
+                                                  .split(',')
+                                                  .map((v) => v.trim())
+                                                  .filter(Boolean);
+                                                updateStep(idx, {
+                                                  condition: { ...cond, values: vals },
+                                                });
+                                              }}
+                                              placeholder="value1, value2, ..."
+                                              disabled={pipeRunning}
+                                              className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-white outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50 flex-1 min-w-0 font-mono"
+                                            />
+                                          </div>
+                                        )}
+                                        {/* Default output */}
+                                        <div className="space-y-1">
+                                          <span className="text-[10px] text-slate-500">
+                                            Default output if skipped
+                                          </span>
+                                          <textarea
+                                            value={step.defaultOutput || ''}
+                                            onChange={(e) =>
+                                              updateStep(idx, { defaultOutput: e.target.value })
+                                            }
+                                            placeholder="Output to pass downstream when this step is skipped..."
+                                            disabled={pipeRunning}
+                                            rows={2}
+                                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-white outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50 resize-none font-mono"
+                                          />
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               )}
 
@@ -1066,7 +1270,7 @@ const Workflows = () => {
                               )}
 
                               {/* Execution Output */}
-                              {(stepState === 'running' || stepState === 'done' || stepState === 'error') && (
+                              {(stepState === 'running' || stepState === 'done' || stepState === 'error' || stepState === 'skipped') && (
                                 <div className="border-t border-slate-800/50">
                                   <button
                                     onClick={() => togglePipeRunStep(idx)}
@@ -1078,7 +1282,7 @@ const Workflows = () => {
                                       <ChevronRight size={12} className="text-slate-500" />
                                     )}
                                     <span className="text-[11px] text-slate-400 font-medium">
-                                      {stepState === 'running' ? 'Running...' : stepState === 'done' ? 'Output' : 'Error'}
+                                      {stepState === 'running' ? 'Running...' : stepState === 'done' ? 'Output' : stepState === 'skipped' ? 'Skipped (default output)' : 'Error'}
                                     </span>
                                     {stepOutput && stepState === 'done' && (
                                       <span className="text-[10px] text-slate-600 truncate flex-1">
@@ -1304,6 +1508,10 @@ const Workflows = () => {
                   <div className="flex items-start gap-1.5">
                     <span className="text-blue-400 font-mono shrink-0">{'{{step:id}}'}</span>
                     <span className="text-slate-600">Specific step result</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-blue-400 font-mono shrink-0">{'{{step:id.field}}'}</span>
+                    <span className="text-slate-600">JSON field from step</span>
                   </div>
                   <div className="flex items-start gap-1.5">
                     <span className="text-amber-400 font-mono shrink-0">{'{{input:key}}'}</span>
